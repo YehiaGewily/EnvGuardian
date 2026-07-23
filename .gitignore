@@ -1,0 +1,19 @@
+# Local planning / agent files (not part of the project)
+plans_and_implementation/
+CLAUDE.md
+AGENT.md
+AGENTS.md
+
+# Build artifacts
+/envguardian
+/envguardian.exe
+/dist/
+
+# Plaintext secrets — never commit
+.env
+.env.*
+!.env.*.age
+
+# Go
+*.test
+*.out

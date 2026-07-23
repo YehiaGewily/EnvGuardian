@@ -1,0 +1,28 @@
+# golangci-lint v2 configuration.
+# Docs: https://golangci-lint.run/usage/configuration/
+version: "2"
+
+linters:
+  enable:
+    - errcheck     # unchecked errors
+    - govet        # suspicious constructs
+    - staticcheck  # static analysis (absorbs gosimple + stylecheck in v2)
+    - revive       # style / lint rules
+    - gosec        # security issues
+    - misspell     # commonly misspelled English words
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Test files may ignore errors and use weaker crypto/randomness freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
