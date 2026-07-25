@@ -27,7 +27,7 @@ make build
 ./envguardian version
 ```
 
-Requires Go 1.22+.
+Requires Go 1.24+.
 
 ## License
 

@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X main.commit=$(COMMIT) \
 	-X main.date=$(DATE)
 
-.PHONY: build test lint fuzz snapshot clean
+.PHONY: build test test-diff lint fuzz snapshot clean
 
 ## build: compile the CLI with version metadata
 build:
@@ -21,13 +21,17 @@ build:
 test:
 	go test -race ./...
 
+## test-diff: run the differential conformance test against joho/godotenv
+test-diff:
+	go test -tags differential -run TestDifferentialGodotenv ./internal/dotenv
+
 ## lint: run golangci-lint (install: https://golangci-lint.run)
 lint:
 	golangci-lint run ./...
 
-## fuzz: run the dotenv parser fuzz target for 30s
+## fuzz: run the dotenv parser fuzz target for 60s
 fuzz:
-	go test -run '^$$' -fuzz 'FuzzParse' -fuzztime 30s ./internal/dotenv
+	go test -run '^$$' -fuzz 'FuzzParse' -fuzztime 60s ./internal/dotenv
 
 ## snapshot: build unpublished release artifacts locally
 snapshot:
