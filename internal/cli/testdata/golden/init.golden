@@ -1,0 +1,5 @@
+initialized envguardian in .envguardian
+  config:     .envguardian/config.toml
+  recipients: .envguardian/recipients.toml (seeded with "alice")
+  gitignore:  added .env
+next: create .env, then run `envguardian encrypt`
