@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"bufio"
-	"fmt"
-	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -58,29 +55,3 @@ func loadRecipients(p config.Paths) (*keys.RecipientsFile, error) {
 
 // display renders a path with forward slashes so output is stable across OSes.
 func display(path string) string { return filepath.ToSlash(path) }
-
-// ensureGitignore makes sure entry is a line in the gitignore at path, creating
-// the file if necessary. It returns whether it added the line.
-func ensureGitignore(path, entry string) (bool, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: .gitignore at the repo root
-	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("read %s: %w", path, err)
-	}
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) == entry {
-			return false, nil // already ignored
-		}
-	}
-
-	var b strings.Builder
-	b.Write(data)
-	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
-		b.WriteByte('\n')
-	}
-	fmt.Fprintf(&b, "%s\n", entry)
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil { //nolint:gosec // .gitignore is not a secret
-		return false, fmt.Errorf("write %s: %w", path, err)
-	}
-	return true, nil
-}

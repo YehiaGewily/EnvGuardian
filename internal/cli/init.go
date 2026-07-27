@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/config"
+	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
@@ -68,8 +68,7 @@ func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) err
 		return err
 	}
 
-	gitignore := filepath.Join(p.Root, ".gitignore")
-	added, err := ensureGitignore(gitignore, plaintext)
+	added, err := gitint.AppendIgnore(p.Root, plaintext)
 	if err != nil {
 		return err
 	}
