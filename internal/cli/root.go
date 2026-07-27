@@ -84,6 +84,10 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newDecryptCmd(flags),
 		newAddRecipientCmd(flags),
 		newListRecipientsCmd(flags),
+		newCheckCmd(flags),
+		newInstallHooksCmd(flags),
+		newHookPreCommitCmd(flags),
+		newDiffCmd(flags),
 	)
 
 	return root

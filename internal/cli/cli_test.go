@@ -166,6 +166,50 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncryptRefusesUnignoredPlaintext(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := filepath.Join(dir, "id.txt")
+	writeAgeID(t, idPath)
+
+	if _, _, code := runCLI(t, "init", "--identity", idPath, "--name", "alice"); code != exitOK {
+		t.Fatal("init failed")
+	}
+	// Undo init's .gitignore entry so .env is no longer ignored.
+	if err := os.WriteFile(".gitignore", []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".env", []byte("A=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Refuse.
+	_, stderr, code := runCLI(t, "encrypt", "--identity", idPath)
+	if code != exitConfig {
+		t.Errorf("exit = %d, want %d", code, exitConfig)
+	}
+	if !strings.Contains(stderr, "not ignored") || !strings.Contains(stderr, "--fix") {
+		t.Errorf("stderr missing risk/fix guidance:\n%s", stderr)
+	}
+	if _, err := os.Stat(".env.age"); err == nil {
+		t.Error("ciphertext was written despite refusal")
+	}
+
+	// --fix appends and proceeds.
+	_, _, code = runCLI(t, "encrypt", "--identity", idPath, "--fix")
+	if code != exitOK {
+		t.Fatalf("encrypt --fix exit = %d", code)
+	}
+	gi, _ := os.ReadFile(".gitignore")
+	if !strings.Contains(string(gi), ".env") {
+		t.Errorf(".gitignore not fixed: %q", gi)
+	}
+	if _, err := os.Stat(".env.age"); err != nil {
+		t.Errorf("ciphertext not written after --fix: %v", err)
+	}
+}
+
 func TestAddRecipientGolden(t *testing.T) {
 	pinDate(t)
 	dir := t.TempDir()
