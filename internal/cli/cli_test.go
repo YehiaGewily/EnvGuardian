@@ -56,7 +56,9 @@ func assertGolden(t *testing.T, name, got string) {
 	if err != nil {
 		t.Fatalf("read golden %s (run with -update): %v", name, err)
 	}
-	if got != string(want) {
+	// Normalize line endings: git may check golden files out as CRLF on Windows.
+	norm := func(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
+	if norm(got) != norm(string(want)) {
 		t.Errorf("golden %s mismatch:\n--- got ---\n%s\n--- want ---\n%s", name, got, want)
 	}
 }
