@@ -27,11 +27,13 @@ and updates the Homebrew tap.
 > [`.goreleaser.yaml`](../.goreleaser.yaml) and the release will still publish
 > binaries — just no `brew` formula.
 
-## Coverage badge (optional)
+## Coverage (optional)
 
-The coverage badge uses [Codecov](https://codecov.io). Connect the repo at
-codecov.io; CI already uploads `coverage.out` on the Ubuntu + Go 1.25 leg. No
-token is needed for public repos.
+The README shows a [Go Report Card](https://goreportcard.com) badge, which needs
+no setup. If you want a coverage badge too, connect the repo at
+[codecov.io](https://codecov.io) and add a `codecov/codecov-action` upload step
+to the `test` job in [`ci.yml`](../.github/workflows/ci.yml) (generate the
+profile with `go test -coverprofile=coverage.out ./...`).
 
 ## Cutting a release
 

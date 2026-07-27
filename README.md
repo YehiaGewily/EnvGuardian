@@ -1,7 +1,7 @@
 # EnvGuardian
 
-[![CI](https://github.com/YehiaGewily/envguardian/actions/workflows/ci.yml/badge.svg)](https://github.com/YehiaGewily/envguardian/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/YehiaGewily/envguardian/branch/main/graph/badge.svg)](https://codecov.io/gh/YehiaGewily/envguardian)
+[![CI](https://github.com/YehiaGewily/EnvGuardian/actions/workflows/ci.yml/badge.svg)](https://github.com/YehiaGewily/EnvGuardian/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/YehiaGewily/envguardian)](https://goreportcard.com/report/github.com/YehiaGewily/envguardian)
 [![Go Reference](https://pkg.go.dev/badge/github.com/YehiaGewily/envguardian.svg)](https://pkg.go.dev/github.com/YehiaGewily/envguardian)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 

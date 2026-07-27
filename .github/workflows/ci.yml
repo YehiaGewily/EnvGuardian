@@ -34,14 +34,7 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-
-      - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.25'
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.out
-          fail_ci_if_error: false
+        run: go test -race ./...
 
   lint:
     name: golangci-lint
