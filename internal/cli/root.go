@@ -16,7 +16,7 @@ import (
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
-// Exit codes (see docs/PLAN.md §6).
+// Exit codes are part of the current CLI contract.
 const (
 	exitOK        = 0
 	exitOutOfSync = 1
@@ -86,6 +86,7 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newListRecipientsCmd(flags),
 		newCheckCmd(flags),
 		newInstallHooksCmd(flags),
+		newHookAutoDecryptCmd(flags),
 		newHookPreCommitCmd(flags),
 		newDiffCmd(flags),
 	)

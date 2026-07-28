@@ -12,6 +12,7 @@ import (
 
 	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
+	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
@@ -62,6 +63,9 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 		}
 		return nil
 	}
+	if _, err := gitint.AppendIgnore(root, config.AutoDecryptStateRelative); err != nil {
+		return fmt.Errorf("gitignore automatic-decryption state: %w", err)
+	}
 
 	for _, name := range managedHooks {
 		if err := installHook(filepath.Join(dir, name), hookBody(name, exe)); err != nil {
@@ -70,6 +74,7 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 		fmt.Fprintf(out, "installed %s hook\n", name)
 	}
 	fmt.Fprintf(out, "hooks written to %s\n", display(dir))
+	fmt.Fprintln(out, "next: review the current commit, then run `envguardian decrypt --accept-changes` once to establish automatic-decryption trust")
 	return nil
 }
 
@@ -79,9 +84,9 @@ func hookBody(name, exe string) string {
 	switch name {
 	case "post-checkout":
 		// Only decrypt on a full branch checkout ($3 == 1), not file checkouts.
-		return fmt.Sprintf("[ \"$3\" = \"1\" ] || exit 0\n%q decrypt >/dev/null", exe)
+		return fmt.Sprintf("[ \"$3\" = \"1\" ] || exit 0\n%q hook-auto-decrypt", exe)
 	case "post-merge":
-		return fmt.Sprintf("%q decrypt >/dev/null", exe)
+		return fmt.Sprintf("%q hook-auto-decrypt", exe)
 	case "pre-commit":
 		return fmt.Sprintf("%q hook-pre-commit || exit 1", exe)
 	default:
@@ -247,7 +252,7 @@ func newHookPreCommitCmd(flags *globalFlags) *cobra.Command {
 
 func runHookPreCommit(flags *globalFlags) error {
 	p := rootPaths(flags)
-	cfg, err := config.Load(p.Config)
+	cfg, err := config.Load(p.Root, p.Config)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // not an EnvGuardian repo; don't interfere
@@ -277,7 +282,7 @@ func runHookPreCommit(flags *globalFlags) error {
 		ageIDs = id.Identities
 	}
 	for _, fp := range cfg.Files {
-		st, err := crypt.Inspect(ageIDs, filepath.Join(p.Root, fp.Ciphertext), filepath.Join(p.Root, fp.Plaintext))
+		st, err := crypt.Inspect(ageIDs, fp.CiphertextPath, fp.PlaintextPath)
 		if err != nil {
 			return withExit(exitConfig, err)
 		}

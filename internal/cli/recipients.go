@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -85,13 +84,11 @@ func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPat
 		Logf:        func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
 	}
 	for _, fp := range cfg.Files {
-		plain := filepath.Join(p.Root, fp.Plaintext)
-		cipher := filepath.Join(p.Root, fp.Ciphertext)
-		if _, err := os.Stat(plain); err != nil {
+		if _, err := os.Stat(fp.PlaintextPath); err != nil {
 			fmt.Fprintf(out, "  skipped %s (no local plaintext; run decrypt then encrypt)\n", fp.Plaintext)
 			continue
 		}
-		if _, err := crypt.Seal(ccfg, recipients, plain, cipher); err != nil {
+		if _, err := crypt.Seal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "  re-encrypted %s → %s\n", fp.Plaintext, fp.Ciphertext)

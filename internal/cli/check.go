@@ -87,7 +87,7 @@ func runCheck(cmd *cobra.Command, flags *globalFlags) error {
 func collectChecks(p config.Paths, flags *globalFlags) []checkResult {
 	var results []checkResult
 
-	cfg, cfgErr := config.Load(p.Config)
+	cfg, cfgErr := config.Load(p.Root, p.Config)
 	if cfgErr != nil {
 		results = append(results, checkResult{Name: "config", Detail: cfgErr.Error()})
 	} else {
@@ -147,10 +147,7 @@ func checkGitignore(root, plaintext string) checkResult {
 
 func checkCiphertext(p config.Paths, fp config.FilePair, ageIDs []age.Identity) checkResult {
 	name := "ciphertext " + fp.Ciphertext
-	cipher := filepath.Join(p.Root, fp.Ciphertext)
-	plain := filepath.Join(p.Root, fp.Plaintext)
-
-	st, err := crypt.Inspect(ageIDs, cipher, plain)
+	st, err := crypt.Inspect(ageIDs, fp.CiphertextPath, fp.PlaintextPath)
 	switch {
 	case err != nil:
 		return checkResult{Name: name, Detail: err.Error()}
@@ -190,5 +187,5 @@ func checkRotations(p config.Paths) checkResult {
 	for i, pd := range rot.Pending {
 		keyNames[i] = pd.Key
 	}
-	return checkResult{Name: "rotations", Detail: fmt.Sprintf("%d pending: %v (rotate at source, then `envguardian rotation done`)", len(rot.Pending), keyNames)}
+	return checkResult{Name: "rotations", Detail: fmt.Sprintf("%d pending: %v (rotate each credential at its source)", len(rot.Pending), keyNames)}
 }

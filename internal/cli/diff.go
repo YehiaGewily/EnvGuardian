@@ -77,11 +77,11 @@ func workingDiff(cmd *cobra.Command, flags *globalFlags) error {
 
 	out := cmd.OutOrStdout()
 	for _, fp := range cfg.Files {
-		old, err := crypt.DecryptToDotenv(id.Identities, filepath.Join(p.Root, fp.Ciphertext))
+		old, err := crypt.DecryptToDotenv(id.Identities, fp.CiphertextPath)
 		if err != nil {
 			return fmt.Errorf("decrypt %s: %w", fp.Ciphertext, err)
 		}
-		newF, err := parsePlaintext(filepath.Join(p.Root, fp.Plaintext))
+		newF, err := parsePlaintext(fp.PlaintextPath)
 		if err != nil {
 			return withExit(exitConfig, err)
 		}
@@ -167,5 +167,9 @@ func parsePlaintext(path string) (*dotenv.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read plaintext %s: %w", path, err)
 	}
-	return dotenv.Parse(bytes.NewReader(data))
+	f, err := dotenv.Parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("plaintext %s is not valid dotenv; refusing to diff", path)
+	}
+	return f, nil
 }

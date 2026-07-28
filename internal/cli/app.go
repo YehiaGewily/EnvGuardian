@@ -38,7 +38,7 @@ func currentUser() string {
 }
 
 func loadConfig(p config.Paths) (*config.Config, error) {
-	c, err := config.Load(p.Config)
+	c, err := config.Load(p.Root, p.Config)
 	if err != nil {
 		return nil, withExit(exitConfig, err)
 	}

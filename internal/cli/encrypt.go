@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"filippo.io/age"
 	"github.com/spf13/cobra"
@@ -78,9 +77,7 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 	}
 
 	for _, fp := range cfg.Files {
-		plain := filepath.Join(p.Root, fp.Plaintext)
-		cipher := filepath.Join(p.Root, fp.Ciphertext)
-		changed, err := crypt.Seal(ccfg, recipients, plain, cipher)
+		changed, err := crypt.Seal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath)
 		if err != nil {
 			var pe *dotenv.ParseError
 			if errors.As(err, &pe) {

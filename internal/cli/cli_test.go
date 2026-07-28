@@ -106,6 +106,9 @@ func TestInitGolden(t *testing.T) {
 	if !strings.Contains(string(gi), ".env") {
 		t.Errorf(".gitignore missing .env: %q", gi)
 	}
+	if !strings.Contains(string(gi), ".envguardian/auto-decrypt-state.toml") {
+		t.Errorf(".gitignore missing local automatic-decryption state: %q", gi)
+	}
 }
 
 func TestInitRefusesOverwrite(t *testing.T) {
@@ -124,6 +127,24 @@ func TestInitRefusesOverwrite(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "already initialized") {
 		t.Errorf("stderr = %q, want 'already initialized'", stderr)
+	}
+}
+
+func TestInitRejectsEscapingFileBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := filepath.Join(dir, "id.txt")
+	writeAgeID(t, idPath)
+
+	_, stderr, code := runCLI(t, "init", "--identity", idPath, "--file", "../outside", "--name", "alice")
+	if code != exitConfig {
+		t.Fatalf("exit = %d, want %d; stderr=%s", code, exitConfig, stderr)
+	}
+	if !strings.Contains(stderr, "escapes the repository") {
+		t.Fatalf("stderr missing containment reason: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".envguardian")); !os.IsNotExist(err) {
+		t.Fatalf("init wrote repository state before validating --file: %v", err)
 	}
 }
 

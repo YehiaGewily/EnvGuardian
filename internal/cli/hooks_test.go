@@ -86,6 +86,9 @@ func TestInstallHooksBlocksPlaintextCommit(t *testing.T) {
 		if !strings.Contains(string(data), hookBegin) {
 			t.Errorf("hook %s missing managed block:\n%s", h, data)
 		}
+		if (h == "post-merge" || h == "post-checkout") && !strings.Contains(string(data), "hook-auto-decrypt") {
+			t.Errorf("hook %s bypasses automatic-decryption trust gate:\n%s", h, data)
+		}
 	}
 
 	// Stage the plaintext .env (force, since it's gitignored) and try to commit.

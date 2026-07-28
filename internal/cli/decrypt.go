@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -11,17 +10,23 @@ import (
 )
 
 func newDecryptCmd(flags *globalFlags) *cobra.Command {
-	return &cobra.Command{
+	var acceptChanges bool
+	cmd := &cobra.Command{
 		Use:   "decrypt",
 		Short: "Decrypt every ciphertext file to its plaintext (mode 0600)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDecrypt(cmd, flags)
+			return runDecrypt(cmd, flags, acceptChanges)
 		},
 	}
+	cmd.Flags().BoolVar(&acceptChanges, "accept-changes", false, "accept the current commit's managed inputs and update automatic-decryption trust state")
+	return cmd
 }
 
-func runDecrypt(cmd *cobra.Command, flags *globalFlags) error {
+func runDecrypt(cmd *cobra.Command, flags *globalFlags, acceptChanges bool) error {
+	if acceptChanges {
+		return runAcceptChanges(cmd, flags)
+	}
 	p := rootPaths(flags)
 	cfg, err := loadConfig(p)
 	if err != nil {
@@ -36,9 +41,7 @@ func runDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 	ccfg := crypt.Config{Identities: id.Identities, Label: id.Label}
 	out := cmd.OutOrStdout()
 	for _, fp := range cfg.Files {
-		plain := filepath.Join(p.Root, fp.Plaintext)
-		cipher := filepath.Join(p.Root, fp.Ciphertext)
-		if err := crypt.Open(ccfg, cipher, plain); err != nil {
+		if err := crypt.Open(ccfg, fp.CiphertextPath, fp.PlaintextPath); err != nil {
 			return err // ErrNotARecipient → exit 2
 		}
 		fmt.Fprintf(out, "decrypted %s → %s\n", fp.Ciphertext, fp.Plaintext)
