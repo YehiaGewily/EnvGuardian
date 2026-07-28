@@ -1,31 +1,57 @@
 name: release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
 
-permissions:
-  contents: write # create the GitHub release and upload assets
-
 jobs:
-  goreleaser:
+  verify:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # goreleaser needs full history + tags
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
 
-      - name: Run GoReleaser
+      - name: Build snapshot with GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Upload snapshot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: envguardian-snapshot
+          path: dist/
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Publish with GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with write access to YehiaGewily/homebrew-tap (see docs/RELEASING.md).
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
