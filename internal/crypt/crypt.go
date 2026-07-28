@@ -1,7 +1,8 @@
 // Package crypt is a thin wrapper over filippo.io/age. It owns the
 // decrypt-compare-then-maybe-write loop that keeps ciphertext idempotent: no
 // bytes are written unless the recipient set or the decrypted plaintext actually
-// changed (CLAUDE.md rule 2).
+// changed (see CONTRIBUTING.md). Stage B will remove the current recipient-change
+// bypass and require decrypt-and-compare whenever ciphertext already exists.
 package crypt
 
 import (
@@ -22,6 +23,30 @@ import (
 // the file because it is not one of its recipients — the case a new teammate
 // hits before someone adds them. It is reachable via errors.Is.
 var ErrNotARecipient = errors.New("your key is not a recipient of this file")
+
+// InvalidDotenvError identifies an invalid decrypted payload. Its rendered
+// message deliberately omits the stored line and parser details because both
+// are plaintext-derived and malformed trailing text can contain a secret.
+type InvalidDotenvError struct {
+	Line int
+}
+
+func (e *InvalidDotenvError) Error() string {
+	return "decrypted payload is not valid dotenv; refusing to write plaintext"
+}
+
+// InvalidPlaintextError retains the parser error for programmatic inspection
+// while rendering no plaintext-derived line number or malformed fragment.
+type InvalidPlaintextError struct {
+	Path string
+	Err  error
+}
+
+func (e *InvalidPlaintextError) Error() string {
+	return fmt.Sprintf("plaintext %s is not valid dotenv; refusing to encrypt", e.Path)
+}
+
+func (e *InvalidPlaintextError) Unwrap() error { return e.Err }
 
 // Config carries the shared inputs for Seal and Open.
 type Config struct {
@@ -58,7 +83,7 @@ func Seal(cfg Config, recipients []age.Recipient, plaintextPath, ciphertextPath 
 		return false, fmt.Errorf("read plaintext %s: %w", plaintextPath, err)
 	}
 	if _, err := dotenv.Parse(bytes.NewReader(plaintext)); err != nil {
-		return false, fmt.Errorf("plaintext %s is not a valid .env: %w", plaintextPath, err)
+		return false, &InvalidPlaintextError{Path: plaintextPath, Err: err}
 	}
 
 	lockFP, _ := readLockFingerprint(cfg.LockPath)
@@ -133,19 +158,44 @@ func Open(cfg Config, ciphertextPath, plaintextPath string) error {
 	if err != nil {
 		return fmt.Errorf("read ciphertext %s: %w", ciphertextPath, err)
 	}
-	plaintext, err := decryptBytes(ct, cfg.Identities)
+	return OpenBytes(cfg, ct, plaintextPath)
+}
+
+// OpenBytes decrypts committed ciphertext bytes, validates the complete
+// plaintext as dotenv, and only then atomically writes it with mode 0600.
+func OpenBytes(cfg Config, ciphertext []byte, plaintextPath string) error {
+	plaintext, _, err := DecryptBytesToDotenv(cfg.Identities, ciphertext)
 	if err != nil {
 		var nim *age.NoIdentityMatchError
 		if errors.As(err, &nim) {
 			return fmt.Errorf("%w\n  the identity used was: %s\n  fix: ask a teammate to run `envguardian add-recipient --github <username>` and commit the result",
 				ErrNotARecipient, cfg.Label)
 		}
-		return fmt.Errorf("decrypt %s: %w", ciphertextPath, err)
+		return fmt.Errorf("decrypt ciphertext: %w", err)
 	}
 	if err := atomic.WriteFile(plaintextPath, plaintext, 0o600); err != nil {
 		return err
 	}
 	return nil
+}
+
+// DecryptBytesToDotenv decrypts and validates ciphertext entirely in memory.
+// The plaintext return value is sensitive and must never be logged or persisted
+// except through an approved 0600 plaintext destination.
+func DecryptBytesToDotenv(identities []age.Identity, ciphertext []byte) ([]byte, *dotenv.File, error) {
+	plaintext, err := decryptBytes(ciphertext, identities)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := dotenv.Parse(bytes.NewReader(plaintext))
+	if err != nil {
+		var parseErr *dotenv.ParseError
+		if errors.As(err, &parseErr) {
+			return nil, nil, &InvalidDotenvError{Line: parseErr.Line}
+		}
+		return nil, nil, &InvalidDotenvError{}
+	}
+	return plaintext, f, nil
 }
 
 func encryptBytes(plaintext []byte, recipients []age.Recipient) ([]byte, error) {

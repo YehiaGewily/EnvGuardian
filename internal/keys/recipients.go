@@ -12,6 +12,7 @@ import (
 	"filippo.io/age"
 	"filippo.io/age/agessh"
 	"github.com/BurntSushi/toml"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/YehiaGewily/envguardian/internal/atomic"
 )
@@ -40,12 +41,23 @@ func LoadRecipients(path string) (*RecipientsFile, error) {
 		}
 		return nil, fmt.Errorf("read recipients file %s: %w", path, err)
 	}
-	var f RecipientsFile
-	if err := toml.Unmarshal(data, &f); err != nil {
+	f, err := ParseRecipients(data)
+	if err != nil {
 		return nil, fmt.Errorf("parse recipients file %s: %w", path, err)
 	}
+	return f, nil
+}
+
+// ParseRecipients decodes and validates recipients bytes. Hooks use it on
+// exact commit blobs so the working tree cannot substitute a different trust
+// set during automatic-decryption checks.
+func ParseRecipients(data []byte) (*RecipientsFile, error) {
+	var f RecipientsFile
+	if err := toml.Unmarshal(data, &f); err != nil {
+		return nil, err
+	}
 	if err := f.Validate(); err != nil {
-		return nil, fmt.Errorf("recipients file %s is invalid: %w", path, err)
+		return nil, err
 	}
 	return &f, nil
 }
@@ -126,6 +138,29 @@ func (f *RecipientsFile) Names() []string {
 	return out
 }
 
+// RecipientNameForSigningKey returns the recipient whose SSH public key has
+// the fingerprint reported by git for a verified SSH commit signature. age
+// X25519 recipients cannot sign commits and therefore never match.
+func (f *RecipientsFile) RecipientNameForSigningKey(fingerprint string) (string, bool) {
+	want := strings.TrimSpace(fingerprint)
+	if want == "" {
+		return "", false
+	}
+	for _, recipient := range f.Recipients {
+		if !strings.HasPrefix(strings.TrimSpace(recipient.Key), "ssh-") {
+			continue
+		}
+		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(recipient.Key))
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(want, ssh.FingerprintSHA256(pub)) || strings.EqualFold(want, ssh.FingerprintLegacyMD5(pub)) {
+			return recipient.Name, true
+		}
+	}
+	return "", false
+}
+
 // ParseRecipient turns a public key string into an age.Recipient. It accepts
 // age X25519 keys (age1...) and SSH public keys (ssh-ed25519, ssh-rsa).
 func ParseRecipient(key string) (age.Recipient, error) {
@@ -172,8 +207,8 @@ const fingerprintScheme = "v1"
 
 // Fingerprint returns a version-prefixed SHA-256 over the sorted, canonicalized
 // recipient public keys. It is a derivative of PUBLIC data only (recipient
-// keys), never of any secret value — see CLAUDE.md rule 6. It is what
-// lock.toml records so a recipient-set change is detectable without decrypting.
+// keys), never of any secret value; see CONTRIBUTING.md. The prototype
+// lock.toml records it as a recipient-set signal, not as ciphertext provenance.
 func (f *RecipientsFile) Fingerprint() string {
 	canon := make([]string, len(f.Recipients))
 	for i, r := range f.Recipients {

@@ -1,7 +1,6 @@
 package crypt
 
 import (
-	"bytes"
 	"errors"
 	"os"
 
@@ -69,9 +68,6 @@ func DecryptToDotenv(identities []age.Identity, ciphertextPath string) (*dotenv.
 	if err != nil {
 		return nil, err
 	}
-	dec, err := decryptBytes(ct, identities)
-	if err != nil {
-		return nil, err
-	}
-	return dotenv.Parse(bytes.NewReader(dec))
+	_, f, err := DecryptBytesToDotenv(identities, ct)
+	return f, err
 }

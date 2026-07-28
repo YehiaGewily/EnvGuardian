@@ -210,6 +210,31 @@ func TestSealFirstEncryptNeedsNoIdentity(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsNonDotenvBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	party := newParty(t)
+	ciphertext, err := encryptBytes([]byte("this is not dotenv\nSECRET-VALUE"), []age.Recipient{party.rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipherPath := filepath.Join(dir, "bad.env.age")
+	plainPath := filepath.Join(dir, ".env")
+	if err := os.WriteFile(cipherPath, ciphertext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = Open(Config{Identities: []age.Identity{party.id}, Label: "test"}, cipherPath, plainPath)
+	var invalid *InvalidDotenvError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Open error = %v, want InvalidDotenvError", err)
+	}
+	if _, statErr := os.Stat(plainPath); !os.IsNotExist(statErr) {
+		t.Fatalf("plaintext was written for invalid dotenv payload: %v", statErr)
+	}
+	if strings.Contains(err.Error(), "SECRET-VALUE") {
+		t.Fatalf("error leaked decrypted content: %v", err)
+	}
+}
+
 // TestMergeSkewDetected reproduces the scenario that motivates the fingerprint:
 // two teammates add a recipient on separate branches, recipients.toml merges to
 // include both, but the ciphertext merge takes only one side. Nothing about the

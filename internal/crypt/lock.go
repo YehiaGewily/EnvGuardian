@@ -16,8 +16,8 @@ const (
 )
 
 // lockContents is the entire lock.toml: only the recipient-set fingerprint (a
-// derivative of PUBLIC data) plus a format version. No plaintext derivatives —
-// see CLAUDE.md rule 6.
+// derivative of PUBLIC data) plus a format version. No plaintext derivatives;
+// see CONTRIBUTING.md. This prototype is not yet bound to ciphertext bytes.
 type lockContents struct {
 	Version               int    `toml:"version"`
 	RecipientsFingerprint string `toml:"recipients_fingerprint"`
@@ -53,8 +53,8 @@ func writeLock(path, fingerprint string) error {
 
 // VerifyLock reports whether lock.toml matches the current recipient
 // fingerprint. A missing, unparseable, or mismatched lock is an out-of-sync
-// error — this is what `check` runs to catch the "ciphertext merged to one side,
-// recipients.toml claims both" bug.
+// error. This checks only the public recipient fingerprint; it does not prove
+// which ciphertext bytes were produced for that recipient set.
 func VerifyLock(lockPath, wantFingerprint string) error {
 	got, ok := readLockFingerprint(lockPath)
 	if !ok {

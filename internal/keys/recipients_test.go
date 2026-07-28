@@ -170,3 +170,21 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Errorf("missing file error = %v, want a hint to run init", err)
 	}
 }
+
+func TestRecipientNameForSigningKey(t *testing.T) {
+	sshRecipient := sshKey(t)
+	pub, _, _, _, err := gossh.ParseAuthorizedKey([]byte(sshRecipient))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := &RecipientsFile{Recipients: []Recipient{
+		{Name: "age-only", Key: ageKey(t)},
+		{Name: "alice", Key: sshRecipient},
+	}}
+	if name, ok := file.RecipientNameForSigningKey(gossh.FingerprintSHA256(pub)); !ok || name != "alice" {
+		t.Fatalf("SHA256 fingerprint matched %q, %v; want alice, true", name, ok)
+	}
+	if _, ok := file.RecipientNameForSigningKey("SHA256:not-a-recipient"); ok {
+		t.Fatal("non-recipient signing fingerprint matched")
+	}
+}
