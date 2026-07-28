@@ -17,3 +17,6 @@ AGENTS.md
 # Go
 *.test
 *.out
+graphify-out/
+.codex/
+.claude/
