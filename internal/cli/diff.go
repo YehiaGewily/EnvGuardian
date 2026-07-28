@@ -65,7 +65,10 @@ func textconvDiff(cmd *cobra.Command, flags *globalFlags, file string) error {
 // workingDiff compares each working plaintext against its committed ciphertext
 // and prints added/removed/changed key names.
 func workingDiff(cmd *cobra.Command, flags *globalFlags) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig(p)
 	if err != nil {
 		return err
@@ -138,7 +141,11 @@ func diffKeys(old, newF *dotenv.File) (added, removed, changed []string) {
 }
 
 func installDiffDriver(cmd *cobra.Command, flags *globalFlags) error {
-	root := gitRoot(rootPaths(flags).Root)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
+	root := gitRoot(p.Root)
 
 	added, err := gitint.AppendLine(filepath.Join(root, ".gitattributes"), "*.age diff=envguardian")
 	if err != nil {

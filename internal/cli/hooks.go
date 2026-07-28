@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,7 +40,11 @@ func newInstallHooksCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) error {
-	root := gitRoot(rootPaths(flags).Root)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
+	root := gitRoot(p.Root)
 	dir, err := hooksDir(root)
 	if err != nil {
 		return err
@@ -49,6 +54,10 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 	}
 
 	exe := selfPath()
+	configPath := ""
+	if flags.config != "" {
+		configPath = filepath.ToSlash(p.Config)
+	}
 	out := cmd.OutOrStdout()
 
 	if uninstall {
@@ -68,7 +77,7 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 	}
 
 	for _, name := range managedHooks {
-		if err := installHook(filepath.Join(dir, name), hookBody(name, exe)); err != nil {
+		if err := installHook(filepath.Join(dir, name), hookBody(name, exe, configPath)); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "installed %s hook\n", name)
@@ -80,15 +89,22 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 
 // hookBody returns the shell lines (between markers) for a hook. Portable
 // /bin/sh, no bashisms.
-func hookBody(name, exe string) string {
+
+func hookBody(name, exe, configPath string) string {
+	invoke := func(subcommand string) string {
+		if configPath != "" {
+			return fmt.Sprintf("%q --config %q %s", exe, configPath, subcommand)
+		}
+		return fmt.Sprintf("%q %s", exe, subcommand)
+	}
 	switch name {
 	case "post-checkout":
 		// Only decrypt on a full branch checkout ($3 == 1), not file checkouts.
-		return fmt.Sprintf("[ \"$3\" = \"1\" ] || exit 0\n%q hook-auto-decrypt", exe)
+		return "[ \"$3\" = \"1\" ] || exit 0\n" + invoke("hook-auto-decrypt")
 	case "post-merge":
-		return fmt.Sprintf("%q hook-auto-decrypt", exe)
+		return invoke("hook-auto-decrypt")
 	case "pre-commit":
-		return fmt.Sprintf("%q hook-pre-commit || exit 1", exe)
+		return invoke("hook-pre-commit") + " || exit 1"
 	default:
 		return ""
 	}
@@ -142,7 +158,7 @@ func spliceBlock(content, block string) string {
 func uninstallHook(path string) (bool, error) {
 	existing, err := os.ReadFile(path) //nolint:gosec // G304: git hook path under the repo
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
 		return false, fmt.Errorf("read hook %s: %w", path, err)
@@ -251,10 +267,13 @@ func newHookPreCommitCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runHookPreCommit(flags *globalFlags) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := config.Load(p.Root, p.Config)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil // not an EnvGuardian repo; don't interfere
 		}
 		return withExit(exitConfig, err)

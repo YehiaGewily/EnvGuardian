@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"filippo.io/age"
 	"github.com/BurntSushi/toml"
@@ -38,13 +39,23 @@ func newCheckCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runCheck(cmd *cobra.Command, flags *globalFlags) error {
-	p := rootPaths(flags)
-	results := collectChecks(p, flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
+	results, err := collectChecks(p, flags)
+	if err != nil {
+		return err
+	}
 
 	failed := 0
+	malformedConfig := false
 	for _, r := range results {
 		if r.failed() {
 			failed++
+			if r.Name == "config" || r.Name == "recipients" {
+				malformedConfig = true
+			}
 		}
 	}
 
@@ -77,6 +88,9 @@ func runCheck(cmd *cobra.Command, flags *globalFlags) error {
 	}
 
 	if failed > 0 {
+		if malformedConfig {
+			return withExit(exitConfig, fmt.Errorf("%d check(s) failed", failed))
+		}
 		return withExit(exitOutOfSync, fmt.Errorf("%d check(s) failed", failed))
 	}
 	return nil
@@ -84,7 +98,7 @@ func runCheck(cmd *cobra.Command, flags *globalFlags) error {
 
 // collectChecks runs every verification and returns one result per check,
 // reporting all failures rather than stopping at the first.
-func collectChecks(p config.Paths, flags *globalFlags) []checkResult {
+func collectChecks(p config.Paths, flags *globalFlags) ([]checkResult, error) {
 	var results []checkResult
 
 	cfg, cfgErr := config.Load(p.Root, p.Config)
@@ -107,10 +121,19 @@ func collectChecks(p config.Paths, flags *globalFlags) []checkResult {
 			Name: "recipients", OK: true,
 			Detail: fmt.Sprintf("%d recipient(s), well-formed", len(rf.Recipients)),
 		})
-		if err := crypt.VerifyLock(p.Lock, rf.Fingerprint()); err != nil {
+		var lockTargets []crypt.LockTarget
+		if cfg != nil {
+			lockTargets = make([]crypt.LockTarget, 0, len(cfg.Files))
+			for _, fp := range cfg.Files {
+				lockTargets = append(lockTargets, crypt.LockTarget{Ciphertext: fp.Ciphertext, Path: fp.CiphertextPath})
+			}
+		}
+		if cfg == nil {
+			results = append(results, checkResult{Name: "recipient set in sync", Skipped: true, Detail: "config is invalid"})
+		} else if err := crypt.VerifyLock(p.Lock, lockTargets, rf.Fingerprint()); err != nil {
 			results = append(results, checkResult{Name: "recipient set in sync", Detail: err.Error()})
 		} else {
-			results = append(results, checkResult{Name: "recipient set in sync", OK: true, Detail: "lock matches recipients"})
+			results = append(results, checkResult{Name: "recipient set in sync", OK: true, Detail: "lock matches recipients and ciphertext bytes"})
 		}
 	}
 
@@ -118,6 +141,8 @@ func collectChecks(p config.Paths, flags *globalFlags) []checkResult {
 		var identities []keys.Identity
 		if id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter()); err == nil {
 			identities = []keys.Identity{*id}
+		} else if flags.identity != "" || strings.TrimSpace(os.Getenv("ENVGUARDIAN_IDENTITY")) != "" {
+			return nil, err
 		}
 		var ageIDs []age.Identity
 		if len(identities) > 0 {
@@ -130,7 +155,7 @@ func collectChecks(p config.Paths, flags *globalFlags) []checkResult {
 	}
 
 	results = append(results, checkRotations(p))
-	return results
+	return results, nil
 }
 
 func checkGitignore(root, plaintext string) checkResult {

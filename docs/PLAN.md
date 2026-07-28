@@ -109,6 +109,9 @@ statement in the repository describes the current implementation honestly.
 - [x] Validate `init --file` before any repository mutation.
 - [x] Route configured encrypt, decrypt, working diff, check, hook, and
   recipient operations through the resolved paths.
+- [x] Resolve config, recipients, lock, and local hook-state metadata through
+  the same boundary so a symlinked `.envguardian` directory cannot redirect a
+  transaction outside the repository.
 - [x] Parse decrypted bytes as dotenv before an atomic mode-`0600` write.
 - [x] Cover traversal, Unix/Windows absolute forms, `.git/`, symlink escape,
   collisions, duplicates, invalid decrypted dotenv, and a valid nested path.
@@ -135,5 +138,75 @@ outside the repository or inside `.git/`.
 
 **Done:** checking out a commit with changed managed inputs cannot modify local
 plaintext without explicit acceptance.
+
+## Stage B — Correctness core
+
+### Phase 3 — Single file pair, lock state, and seal planner
+
+- [x] Accept exactly one file pair per config and direct additional pairs to a
+  second `--config`, while keeping slice-shaped planning/commit APIs. Custom
+  config files use adjacent config-specific locks so the one-entry locks do not
+  overwrite one another.
+- [x] Replace the global prototype lock with strict lock format v2: one entry
+  per configured ciphertext, recipient fingerprint, and exact ciphertext
+  SHA-256 digest.
+- [x] Read and validate plaintext and decrypt existing ciphertext before any
+  write; compare semantic dotenv key/value content.
+- [x] Make recipient/lock changes decide whether to write, while decrypted
+  existing content decides what is written. Reject divergent local plaintext
+  during a recipient/lock change.
+- [x] Require a usable identity for existing ciphertext unless the user selects
+  the loud `--force` lost-key escape hatch; allow identity-free creation only
+  for brand-new ciphertext.
+- [x] Generate all replacements before committing, write the lock last, retain
+  originals for rollback on ordinary errors, and make interrupted writes
+  detectable through ciphertext digests.
+- [x] Strictly reject missing, extra, duplicate, malformed, digest-mismatched,
+  fingerprint-mismatched, and unsupported-version lock entries.
+- [x] Test add/replace/remove recipient membership, same-count key replacement,
+  planning without writes, rollback, interrupted commit detection, lock skew,
+  and stale-branch divergence.
+
+**Done:** sealing is planned before mutation; recipient changes cannot silently
+replace committed secret content with a stale local dotenv.
+
+### Phase 4 — Transactional recipient operations
+
+- [x] Make `add-recipient` use the seal planner and delay every success message
+  and recipients-file write until planning succeeds.
+- [x] Enforce the plaintext `.gitignore` guard.
+- [x] If local plaintext is absent, decrypt existing ciphertext in memory; if
+  it is undecryptable, fail without modifying recipients, ciphertext, or lock.
+- [x] Commit ciphertext and recipients before writing lock last, rolling all
+  attempted files back on ordinary errors.
+- [x] Reject explicitly supplied invalid identities.
+- [x] Give GitHub fetching a timeout, reject oversized bodies, and validate
+  every returned Ed25519 key.
+- [x] Add additive `keys = [...]` parsing, flatten all legacy/new keys for age,
+  duplicate detection and fingerprints, while retaining legacy `key =` reads.
+- [x] Fail loudly when GitHub returns multiple Ed25519 keys until v0.2 enables
+  multi-key recipient onboarding.
+
+**Done:** a failed recipient addition leaves all committed managed state
+unchanged under ordinary process errors.
+
+### Phase 5 — Config and CLI correctness
+
+- [x] Validate config version during every load and reject unknown TOML fields.
+- [x] Preserve `os.ErrNotExist` through wrapping so hooks can distinguish an
+  uninitialized repository.
+- [x] Enforce exit codes: 0 success, 1 out of sync/conflict, 2 identity or
+  decryption failure, and 3 malformed config or dotenv.
+- [x] Delete the unused `--no-color` flag and implement secret-safe
+  `--verbose` progress.
+- [x] Support `--json` only for `check` and `list-recipients`; reject it on
+  other commands.
+- [x] Discover the repository root when commands run from subdirectories, while
+  preserving explicit `--config` behavior.
+- [x] Add meaningful config-package coverage for versions, unknown fields,
+  missing-file error identity, path rules, collisions, and single-pair scope.
+
+**Done:** malformed input and identity failures have stable CLI semantics, and
+commands operate on the intended repository root.
 
 Later stage checklists will be added under user direction.

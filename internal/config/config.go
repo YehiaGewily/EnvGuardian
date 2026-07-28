@@ -80,7 +80,7 @@ func Load(root, configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath) //nolint:gosec // G304: user-selected config path
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("config %s not found: run `envguardian init` first", configPath)
+			return nil, fmt.Errorf("config %s not found: run `envguardian init` first: %w", configPath, err)
 		}
 		return nil, fmt.Errorf("read config %s: %w", configPath, err)
 	}
@@ -95,8 +95,12 @@ func Load(root, configPath string) (*Config, error) {
 // used by hooks to validate a config read from an exact commit snapshot.
 func Parse(root string, data []byte) (*Config, error) {
 	var c Config
-	if err := toml.Unmarshal(data, &c); err != nil {
+	metadata, err := toml.Decode(string(data), &c)
+	if err != nil {
 		return nil, fmt.Errorf("parse TOML: %w", err)
+	}
+	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
+		return nil, fmt.Errorf("unknown config field %q", undecoded[0].String())
 	}
 	if err := c.ValidateAndResolve(root); err != nil {
 		return nil, err
@@ -108,6 +112,9 @@ func Parse(root string, data []byte) (*Config, error) {
 // paths used by commands. It also detects aliases caused by cleaning, symlinks,
 // and hard links.
 func (c *Config) ValidateAndResolve(root string) error {
+	if c.Version != Version {
+		return fmt.Errorf("unsupported config version %d (want %d)", c.Version, Version)
+	}
 	if len(c.Files) == 0 {
 		return fmt.Errorf("no [[file]] entries: add a plaintext/ciphertext pair")
 	}
@@ -146,7 +153,7 @@ func (c *Config) ValidateAndResolve(root string) error {
 		}
 	}
 	if len(c.Files) != 1 {
-		return fmt.Errorf("v0.1.1 supports exactly one [[file]] mapping; multi-file support returns with the transactional planner in v0.2.0")
+		return fmt.Errorf("v0.1.1 supports exactly one [[file]] mapping; use a second --config file for another pair until transactional multi-file support returns in v0.2.0")
 	}
 	return nil
 }

@@ -18,6 +18,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and ciphertext blobs against a local accepted commit. Managed changes now
   require `decrypt --accept-changes`.
 - Required decrypted payloads to parse as dotenv before any plaintext write.
+- Replaced the recipient-change bypass with a decrypt-and-compare seal planner.
+  Recipient changes with divergent local plaintext now fail without writing.
+- Added lock format v2 with one entry per ciphertext, the current public
+  recipient fingerprint, and a SHA-256 digest of the exact public ciphertext.
+- Made recipient addition plan first and commit ciphertext, recipients, and
+  lock as one rollback-capable transaction, with the lock written last.
 
 ### Changed
 
@@ -26,6 +32,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   publishing.
 - Corrected parser conformance, package documentation, milestone status, and
   unimplemented command guidance.
+- Limited `v0.1.1` to one file pair per `--config`, added strict config/version
+  parsing, made commands discover the repository from subdirectories, defined
+  JSON-capable commands, removed the unused `--no-color` flag, and made
+  `--verbose` emit secret-safe command progress.
+- Added the additive recipient `keys = [...]` schema while retaining legacy
+  `key =` reads; v0.1.1 still rejects multiple GitHub Ed25519 keys explicitly.
+- Added a bounded GitHub HTTP client, oversized-response rejection, and
+  validation of every returned Ed25519 key.
 
 ## [0.1.0] - 2026-07-28
 

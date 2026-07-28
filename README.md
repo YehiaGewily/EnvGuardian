@@ -27,8 +27,9 @@ go run ./cmd/envguardian version
 ```
 
 Do not install hooks from `v0.1.0`. Development code for `v0.1.1` now contains
-the Stage A path-containment and explicit-acceptance controls, but the project
-remains unsupported until the remaining release gates are complete.
+the Stage A path-containment and explicit-acceptance controls and the Stage B
+transactional sealing core, but the project remains unsupported until the
+remaining release gates are complete.
 
 ## Current implementation status
 
@@ -39,8 +40,20 @@ mean they are ready to protect real secrets:
 - Managed plaintext and ciphertext paths are resolved at config load, confined
   to the repository, checked through existing-parent symlinks, and excluded
   from `.git/`.
-- Recipient changes can currently bypass decrypt-and-compare.
-- `lock.toml` is not yet bound to the exact ciphertext bytes.
+- `v0.1.1` accepts exactly one plaintext/ciphertext pair per `--config`. The
+  internal seal/commit API remains slice-shaped for transactional multi-file
+  support in `v0.2.0`. A non-default config gets an adjacent config-specific
+  lock (`staging.toml` uses `staging.lock.toml`) so separate invocations do not
+  overwrite each other's lock entry.
+- Existing ciphertext is decrypted and semantically compared before any
+  replacement. A simultaneous recipient change and divergent local plaintext
+  is rejected instead of silently choosing the local file.
+- `lock.toml` version 2 has exactly one entry per configured ciphertext and
+  binds the recipient fingerprint to that ciphertext's SHA-256 digest. The
+  digest covers already-public ciphertext, never plaintext.
+- `add-recipient` plans before writing and commits ciphertext, recipients, and
+  lock as one rollback-capable logical transaction. Missing local plaintext is
+  recovered in memory from the existing ciphertext.
 - `check` cannot prove an absent, uncommitted local `.env` is current. Stage C
   will separate repository checks from `check-local` synchronization checks.
 - Automatic hooks compare the exact incoming commit with a local accepted

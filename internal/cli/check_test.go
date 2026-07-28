@@ -116,3 +116,25 @@ func TestCheckJSON(t *testing.T) {
 		t.Error("no results in JSON")
 	}
 }
+
+func TestCheckDetectsCiphertextLockDigestMismatch(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := setupRepo(t, dir, "A=1\n")
+	cipherPath := filepath.Join(dir, ".env.age")
+	ciphertext, err := os.ReadFile(cipherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cipherPath, append(ciphertext, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runCLI(t, "check", "--identity", idPath)
+	if code != exitOutOfSync {
+		t.Fatalf("check exit=%d, want %d\n%s", code, exitOutOfSync, out)
+	}
+	if !strings.Contains(out, "does not match its lock digest") {
+		t.Fatalf("check did not report ciphertext digest mismatch:\n%s", out)
+	}
+}

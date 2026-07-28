@@ -251,7 +251,7 @@ func TestAddRecipientGolden(t *testing.T) {
 	}
 
 	bobKey := writeAgeID(t, filepath.Join(dir, "bob.txt")) // reuse to get a valid age recipient
-	out, _, code := runCLI(t, "add-recipient", "--key", bobKey, "--name", "bob")
+	out, _, code := runCLI(t, "add-recipient", "--identity", idPath, "--key", bobKey, "--name", "bob")
 	if code != exitOK {
 		t.Fatalf("add-recipient exit = %d", code)
 	}

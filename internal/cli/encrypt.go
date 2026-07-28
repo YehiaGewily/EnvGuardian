@@ -3,12 +3,13 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"filippo.io/age"
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/crypt"
-	"github.com/YehiaGewily/envguardian/internal/dotenv"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
@@ -29,7 +30,10 @@ func newEncryptCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig(p)
 	if err != nil {
 		return err
@@ -58,12 +62,14 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		return withExit(exitConfig, err)
 	}
 
-	// Identity is best-effort: first-time and recipient-change encrypts don't
-	// need it; only the decrypt-compare path does.
+	// A brand-new ciphertext needs no identity. Existing ciphertext always does
+	// unless the user deliberately selects the loud --force recovery path.
 	var identities []age.Identity
 	var label string
 	if id, rerr := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter()); rerr == nil {
 		identities, label = id.Identities, id.Label
+	} else if flags.identity != "" || strings.TrimSpace(os.Getenv("ENVGUARDIAN_IDENTITY")) != "" {
+		return rerr // never ignore an explicitly supplied invalid identity
 	}
 
 	out := cmd.OutOrStdout()
@@ -76,16 +82,21 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		Logf:        func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
 	}
 
+	plans := make([]*crypt.SealPlan, 0, len(cfg.Files))
 	for _, fp := range cfg.Files {
-		changed, err := crypt.Seal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath)
+		plan, err := crypt.PlanSeal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath, fp.Ciphertext)
 		if err != nil {
-			var pe *dotenv.ParseError
-			if errors.As(err, &pe) {
-				return withExit(exitConfig, err)
-			}
 			return err
 		}
-		if changed {
+		plans = append(plans, plan)
+	}
+	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
+		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(),
+	}); err != nil {
+		return err
+	}
+	for i, fp := range cfg.Files {
+		if plans[i].Changed {
 			fmt.Fprintf(out, "encrypted %s → %s\n", fp.Plaintext, fp.Ciphertext)
 		} else {
 			fmt.Fprintf(out, "%s → %s unchanged\n", fp.Plaintext, fp.Ciphertext)

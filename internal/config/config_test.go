@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,5 +122,37 @@ func TestParseRejectsMultipleDistinctMappings(t *testing.T) {
 	_, err := Parse(root, []byte(body))
 	if err == nil || !strings.Contains(err.Error(), "exactly one [[file]] mapping") {
 		t.Fatalf("error = %v, want single-file compatibility error", err)
+	}
+	if !strings.Contains(err.Error(), "--config") {
+		t.Fatalf("error = %v, want guidance to use a second --config", err)
+	}
+}
+
+func TestParseRejectsVersionAndUnknownFields(t *testing.T) {
+	root := t.TempDir()
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "unsupported version", body: "version = 2\n[[file]]\nplaintext = \".env\"\nciphertext = \".env.age\"\n", want: "unsupported config version"},
+		{name: "unknown top-level", body: "version = 1\nsurprise = true\n[[file]]\nplaintext = \".env\"\nciphertext = \".env.age\"\n", want: "unknown config field"},
+		{name: "unknown file field", body: "version = 1\n[[file]]\nplaintext = \".env\"\nciphertext = \".env.age\"\nsurprise = true\n", want: "unknown config field"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(root, []byte(tt.body))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadPreservesNotExist(t *testing.T) {
+	root := t.TempDir()
+	_, err := Load(root, filepath.Join(root, ".envguardian", "config.toml"))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Load error = %v, want errors.Is(os.ErrNotExist)", err)
 	}
 }

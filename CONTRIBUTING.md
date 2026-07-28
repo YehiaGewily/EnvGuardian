@@ -36,7 +36,9 @@ rules; they do not depend on a local or tool-specific instruction file.
 
 For `v0.1.1`, changes must preserve the single configured plaintext/ciphertext
 pair. Multi-file support returns in `v0.2.0` on top of the transactional
-planner; do not build new behavior on the prototype's partial multi-file loop.
+planner. The planner API is intentionally slice-shaped, but do not enable more
+than one configured pair until crash recovery and multi-file failure testing
+are designed for that release.
 
 ## Development
 

@@ -27,7 +27,10 @@ func newInitCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	// Validate --file before identity prompting or any filesystem mutation. The
 	// constructed config is validated again as a whole before it is saved.
 	if _, err := config.ResolveManagedPath(p.Root, plaintext); err != nil {
@@ -69,7 +72,7 @@ func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) err
 
 	rf := &keys.RecipientsFile{Recipients: []keys.Recipient{{
 		Name:    name,
-		Key:     id.Recipient,
+		Keys:    []string{id.Recipient},
 		Source:  "manual",
 		AddedAt: nowDate(),
 		AddedBy: name,

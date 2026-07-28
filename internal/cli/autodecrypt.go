@@ -48,12 +48,12 @@ func newHookAutoDecryptCmd(flags *globalFlags) *cobra.Command {
 // incoming config. Only an unchanged, previously accepted config may select
 // destinations for automatic writes.
 func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
-	p := rootPaths(flags)
-	root := gitRoot(p.Root)
-	statePath, err := config.ResolveManagedPath(root, config.AutoDecryptStateRelative)
+	p, err := secureRootPaths(flags)
 	if err != nil {
-		return withExit(exitConfig, fmt.Errorf("automatic decryption blocked: unsafe local state path: %w", err))
+		return err
 	}
+	root := gitRoot(p.Root)
+	statePath := p.State
 	current, err := resolveCommit(root, "HEAD")
 	if err != nil {
 		return withExit(exitOutOfSync, fmt.Errorf("automatic decryption blocked: resolve current commit: %w", err))
@@ -150,12 +150,12 @@ func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 // ciphertext from HEAD, validates and decrypts them, and records HEAD only after
 // every plaintext write succeeds.
 func runAcceptChanges(cmd *cobra.Command, flags *globalFlags) error {
-	p := rootPaths(flags)
-	root := gitRoot(p.Root)
-	statePath, err := config.ResolveManagedPath(root, config.AutoDecryptStateRelative)
+	p, err := secureRootPaths(flags)
 	if err != nil {
-		return withExit(exitConfig, fmt.Errorf("unsafe local state path: %w", err))
+		return err
 	}
+	root := gitRoot(p.Root)
+	statePath := p.State
 	current, err := resolveCommit(root, "HEAD")
 	if err != nil {
 		return withExit(exitConfig, fmt.Errorf("--accept-changes requires a committed git snapshot: %w", err))
@@ -301,7 +301,7 @@ func summarizeRecipientChanges(oldBlob, newBlob gitBlobResult) []string {
 		switch {
 		case !ok:
 			result = append(result, fmt.Sprintf("recipient removed: %s", name))
-		case strings.TrimSpace(oldRecipient.Key) != strings.TrimSpace(newRecipient.Key):
+		case !recipientKeysEqual(oldRecipient, newRecipient):
 			result = append(result, fmt.Sprintf("recipient key changed: %s", name))
 		}
 	}
@@ -315,6 +315,20 @@ func summarizeRecipientChanges(oldBlob, newBlob gitBlobResult) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func recipientKeysEqual(a, b keys.Recipient) bool {
+	left := append([]string(nil), a.PublicKeys()...)
+	right := append([]string(nil), b.PublicKeys()...)
+	for i := range left {
+		left[i] = strings.TrimSpace(left[i])
+	}
+	for i := range right {
+		right[i] = strings.TrimSpace(right[i])
+	}
+	sort.Strings(left)
+	sort.Strings(right)
+	return len(left) == len(right) && strings.Join(left, "\x00") == strings.Join(right, "\x00")
 }
 
 func summarizeCiphertextChange(name string, oldBlob, newBlob gitBlobResult, identities []age.Identity) string {

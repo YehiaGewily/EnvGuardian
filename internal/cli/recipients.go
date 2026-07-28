@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/crypt"
+	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
@@ -31,7 +32,10 @@ func newAddRecipientCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPath, name string) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig(p)
 	if err != nil {
 		return err
@@ -55,42 +59,85 @@ func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPat
 		return withExit(exitConfig, err)
 	}
 
-	rf.Recipients = append(rf.Recipients, keys.Recipient{
+	candidate := &keys.RecipientsFile{Recipients: append([]keys.Recipient(nil), rf.Recipients...)}
+	candidate.Recipients = append(candidate.Recipients, keys.Recipient{
 		Name:    name,
-		Key:     keyStr,
+		Keys:    []string{keyStr},
 		Source:  source,
 		AddedAt: nowDate(),
 		AddedBy: currentUser(),
 	})
-	if err := rf.Validate(); err != nil {
+	if err := candidate.Validate(); err != nil {
 		return withExit(exitConfig, err) // duplicate name or key
 	}
-	if err := rf.Save(p.Recipients); err != nil {
+
+	plaintexts := make([]string, len(cfg.Files))
+	for i, fp := range cfg.Files {
+		plaintexts[i] = fp.Plaintext
+	}
+	if err := gitint.EnsureIgnored(p.Root, plaintexts, false); err != nil {
+		return withExit(exitConfig, err)
+	}
+
+	recipients, err := candidate.AgeRecipients()
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	recipientsBytes, err := candidate.Marshal()
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	recipientsPlan, err := crypt.PlanFile(p.Recipients, recipientsBytes, 0o644)
+	if err != nil {
+		return err
+	}
+
+	var identity *keys.Identity
+	if flags.identity != "" || strings.TrimSpace(os.Getenv("ENVGUARDIAN_IDENTITY")) != "" {
+		identity, err = keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+		if err != nil {
+			return err
+		}
+	}
+	for _, fp := range cfg.Files {
+		if _, statErr := os.Stat(fp.CiphertextPath); statErr == nil {
+			if identity == nil {
+				identity, err = keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+				if err != nil {
+					return err
+				}
+			}
+			break
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return fmt.Errorf("inspect ciphertext %s: %w", fp.Ciphertext, statErr)
+		}
+	}
+	ccfg := crypt.Config{
+		LockPath: p.Lock, Fingerprint: candidate.Fingerprint(),
+		Logf: func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
+	}
+	if identity != nil {
+		ccfg.Identities = identity.Identities
+		ccfg.Label = identity.Label
+	}
+	plans := make([]*crypt.SealPlan, 0, len(cfg.Files))
+	for _, fp := range cfg.Files {
+		plan, planErr := crypt.PlanSeal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath, fp.Ciphertext)
+		if planErr != nil {
+			return planErr
+		}
+		plans = append(plans, plan)
+	}
+	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
+		LockPath: p.Lock, RecipientsFingerprint: candidate.Fingerprint(),
+		Additional: []*crypt.FilePlan{recipientsPlan},
+	}); err != nil {
 		return err
 	}
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "added recipient %q (%s)\n", name, source)
-
-	// The recipient set changed, so the fingerprint changes and Seal re-encrypts
-	// unconditionally — no identity needed.
-	recipients, err := rf.AgeRecipients()
-	if err != nil {
-		return withExit(exitConfig, err)
-	}
-	ccfg := crypt.Config{
-		LockPath:    p.Lock,
-		Fingerprint: rf.Fingerprint(),
-		Logf:        func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
-	}
 	for _, fp := range cfg.Files {
-		if _, err := os.Stat(fp.PlaintextPath); err != nil {
-			fmt.Fprintf(out, "  skipped %s (no local plaintext; run decrypt then encrypt)\n", fp.Plaintext)
-			continue
-		}
-		if _, err := crypt.Seal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath); err != nil {
-			return err
-		}
 		fmt.Fprintf(out, "  re-encrypted %s → %s\n", fp.Plaintext, fp.Ciphertext)
 	}
 	return nil
@@ -118,7 +165,11 @@ func resolveNewKey(cmd *cobra.Command, github, key, sshPath string) (keyStr, sou
 		if ferr != nil {
 			return "", "", "", ferr
 		}
-		return fetched[0], "github:" + github, github, nil
+		selected, selectErr := selectSingleGitHubKey(github, fetched)
+		if selectErr != nil {
+			return "", "", "", withExit(exitConfig, selectErr)
+		}
+		return selected, "github:" + github, github, nil
 	case sshPath != "":
 		data, rerr := os.ReadFile(sshPath) //nolint:gosec // G304: user-supplied public key path
 		if rerr != nil {
@@ -128,6 +179,15 @@ func resolveNewKey(cmd *cobra.Command, github, key, sshPath string) (keyStr, sou
 	default:
 		return strings.TrimSpace(key), "manual", "", nil
 	}
+}
+
+func selectSingleGitHubKey(username string, fetched []string) (string, error) {
+	if len(fetched) != 1 {
+		return "", fmt.Errorf(
+			"GitHub user %q has %d ssh-ed25519 keys; v0.1.1 requires exactly one key per recipient, so use --key/--ssh explicitly or wait for v0.2 multi-key recipient support",
+			username, len(fetched))
+	}
+	return fetched[0], nil
 }
 
 func newListRecipientsCmd(flags *globalFlags) *cobra.Command {
@@ -142,7 +202,10 @@ func newListRecipientsCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runListRecipients(cmd *cobra.Command, flags *globalFlags) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	rf, err := loadRecipients(p)
 	if err != nil {
 		return err

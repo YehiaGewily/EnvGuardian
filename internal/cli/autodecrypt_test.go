@@ -178,7 +178,7 @@ func TestRecipientChangeReportsNamesAndDoesNotWrite(t *testing.T) {
 		t.Fatalf("create branch: %d\n%s", code, out)
 	}
 	bobKey := writeAgeID(t, filepath.Join(fixture.repo, "bob-id.txt"))
-	if out, code := run(t, fixture.repo, fixture.bin, "add-recipient", "--key", bobKey, "--name", "bob"); code != 0 {
+	if out, code := run(t, fixture.repo, fixture.bin, "add-recipient", "--identity", fixture.identity, "--key", bobKey, "--name", "bob"); code != 0 {
 		t.Fatalf("add recipient: %d\n%s", code, out)
 	}
 	if out, code := run(t, fixture.repo, "git", "add", ".envguardian/recipients.toml", ".envguardian/lock.toml", ".env.age"); code != 0 {

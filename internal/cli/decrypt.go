@@ -27,7 +27,10 @@ func runDecrypt(cmd *cobra.Command, flags *globalFlags, acceptChanges bool) erro
 	if acceptChanges {
 		return runAcceptChanges(cmd, flags)
 	}
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig(p)
 	if err != nil {
 		return err
