@@ -2,47 +2,63 @@
 
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-28
-
-First public release.
-
-### Added
-
-- **CLI**: `init`, `encrypt`, `decrypt`, `add-recipient`, `list-recipients`,
-  `check`, `install-hooks`, and `diff`.
-- **Idempotent sealing** (`internal/crypt`): re-encrypting unchanged content is a
-  no-op, so age's randomized output never causes diff churn or merge conflicts.
-  A `--force` escape hatch re-encrypts blind when the ciphertext can't be
-  verified.
-- **Recipient management** (`internal/keys`): `recipients.toml` with age and
-  SSH (`ssh-ed25519`/`ssh-rsa`) public keys, validated for duplicate names,
-  duplicate keys, and malformed material; GitHub key fetching via
-  `github.com/<user>.keys`.
-- **Identity resolution**: `--identity` → `$ENVGUARDIAN_IDENTITY` (path or raw
-  material) → `~/.config/envguardian/identity.txt` → `~/.ssh/id_ed25519` →
-  `~/.ssh/id_rsa`, with passphrase-protected age and encrypted SSH key support
-  and a clear error listing every source tried.
-- **Recipient-set fingerprint** in `lock.toml` (public data only) so a merge
-  that leaves the ciphertext encrypted to the wrong set is caught by `check`.
-- **dotenv parser/serializer** (`internal/dotenv`): round-trips comments, blank
-  lines, key order, quote style, and line endings; native fuzzing; a
-  differential test against `joho/godotenv`.
-- **Git integration** (`internal/gitint`): a `.gitignore` guard that refuses to
-  encrypt an untracked-but-committable plaintext file (with `--fix`);
-  `post-merge`/`post-checkout`/`pre-commit` hooks; and a `diff` textconv driver
-  that shows changed key **names** only — never values, lengths, or hashes.
-- **Atomic writes** (`internal/atomic`): temp file, fsync, rename, parent-dir
-  fsync; plaintext written `0600`.
-- Docs: threat model, `.env` conformance table, and the implementation plan.
-
 ### Security
 
-- No derivative of any plaintext secret value (hash, HMAC, length) is written to
-  any committed file — see [CLAUDE.md](CLAUDE.md) rule 6.
+- Marked the project unsupported for real secrets while hardening is in
+  progress and published the repository path-traversal advisory.
+- Established the tracked remediation plan and permanent engineering rules.
+- Confined managed plaintext and ciphertext paths to the repository, including
+  cross-platform absolute-path rejection, existing-parent symlink resolution,
+  `.git/` exclusion, and mapping collision checks.
+- Changed automatic decryption to compare exact committed config, recipients,
+  and ciphertext blobs against a local accepted commit. Managed changes now
+  require `decrypt --accept-changes`.
+- Required decrypted payloads to parse as dotenv before any plaintext write.
+
+### Changed
+
+- Removed unavailable Homebrew and prebuilt-binary installation claims.
+- Made manual release workflow runs produce snapshot artifacts without
+  publishing.
+- Corrected parser conformance, package documentation, milestone status, and
+  unimplemented command guidance.
+
+## [0.1.0] - 2026-07-28
+
+Unreleased development tag. It was not published as a supported GitHub release
+and must not be used for real secrets.
+
+### Prototype functionality
+
+- CLI commands for initialization, encryption, decryption, recipient handling,
+  checks, hook installation, and key-name-only diff output.
+- An age wrapper with a plaintext comparison path, recipient and identity
+  loading, a source-preserving dotenv parser, atomic core file-writing helper,
+  and git integration prototypes.
+- A public recipient-set fingerprint in `lock.toml`. This prototype lock is not
+  per ciphertext and is not bound to ciphertext bytes; it is insufficient for
+  repository-integrity proof.
+- A build-tagged differential test against `joho/godotenv`. It does not run in
+  the normal CI workflow. Python, Node, and Docker differential runners do not
+  exist.
+
+### Known limitations
+
+- Repository-controlled plaintext paths can escape the repository or target
+  `.git/`, including through automatic hooks.
+- Recipient changes can bypass decrypt-and-compare and `--force` permits a blind
+  replacement.
+- `check` can skip synchronization when no identity or local plaintext exists;
+  it is not yet the fail-closed repository check described by the v2 plan.
+- Hook and dotfile writes are not all routed through the atomic writer.
+- Revocation, rotation commands, sender authentication, a merge driver, and the
+  ADR set are unimplemented.
+
+See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
 
 [Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/YehiaGewily/envguardian/releases/tag/v0.1.0
+[0.1.0]: https://github.com/YehiaGewily/envguardian/tree/v0.1.0

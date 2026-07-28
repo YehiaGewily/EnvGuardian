@@ -2,46 +2,78 @@
 
 ## Supported versions
 
-EnvGuardian is pre-1.0. Security fixes land on the latest `0.x` release only.
+EnvGuardian currently has **no supported release**. The `v0.1.0` tag is an
+unreleased development snapshot and must not be used for real secrets.
 
 | Version | Supported |
 |---|---|
-| latest `0.x` | ✅ |
-| older | ❌ |
+| `main` before the `v0.1.1` hardening release | No — development only |
+| `v0.1.0` | No — known unsafe development tag |
+
+## Known advisory: repository path traversal
+
+**Affected:** `v0.1.0`.
+
+Repository-controlled plaintext paths are not fully confined to the repository
+and do not exclude `.git/`. A malicious repository can therefore configure an
+automatic decrypt operation to overwrite a file outside the worktree or inside
+Git's control directory when a recipient runs an installed post-merge or
+post-checkout hook.
+
+The unreleased `v0.1.1` development code resolves every managed path at config
+load, evaluates existing-parent symlinks, rechecks containment, and rejects
+`.git/`. It also validates decrypted dotenv bytes before any plaintext write.
+
+Until a fixed version is released:
+
+- do not use EnvGuardian with real credentials,
+- do not install hooks from `v0.1.0`,
+- do not run commands from the `v0.1.0` binary in an untrusted repository.
+
+This advisory is intentionally public because there is no supported release to
+protect and users need an unambiguous warning. The tracked remediation is in
+[docs/PLAN.md](docs/PLAN.md).
+
+## Security boundary
+
+age encrypts to recipients, but it does not authenticate the sender. Successful
+decryption proves neither who created a ciphertext nor that it came from a
+trusted commit. Development hooks now require explicit acceptance when managed
+inputs change and report local commit-signature status, but this is not
+ciphertext provenance. Provenance remains a separate Stage D requirement. See
+[docs/threat-model.md](docs/threat-model.md).
+
+Removing a recipient only prevents access to future ciphertext. It cannot
+remove access to historical ciphertext in git; affected credentials must be
+rotated at their source.
 
 ## Reporting a vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+**Do not report security vulnerabilities through public GitHub issues.**
 
 Email **yehyaheya@gmail.com** with:
 
-- a description of the issue and its impact,
-- steps to reproduce (a proof of concept if you have one),
-- affected version(s) and platform.
+- a description of the issue and impact,
+- reproduction steps or a proof of concept,
+- affected versions and platforms.
 
-You can expect an acknowledgement within **72 hours** and a status update within
-**7 days**. Once a fix is available we will coordinate a disclosure timeline with
-you and credit you in the release notes unless you prefer to remain anonymous.
-
-If you prefer encrypted email, request our public key in your first (unencrypted)
-message and we'll reply with it.
+You can expect acknowledgement within 72 hours and a status update within seven
+days. Disclosure timing and credit will be coordinated with the reporter. To
+use encrypted email, request the public key in an initial message.
 
 ## Scope
 
 In scope:
 
-- Recovery of secret **values** by anyone with only repository read access.
-- Committing a value-derived artifact (hash, HMAC, length) that acts as an
-  offline brute-force oracle for low-entropy secrets.
-- Bypassing the pre-commit plaintext guard or the `check` sync verification.
-- Identity-resolution or decryption flaws that leak key material.
+- recovery of plaintext by someone with only repository read access,
+- a plaintext-derived artifact that enables offline guessing,
+- escaping the repository or writing inside `.git/`,
+- bypassing plaintext guards or repository-integrity checks,
+- identity-resolution or decryption flaws that expose key material,
+- treating unauthenticated ciphertext as trusted provenance.
 
-Out of scope (see the threat model in the [README](README.md)):
+Outside the tool's security boundary:
 
-- Access by a **current recipient** — anyone in `recipients.toml` can read
-  everything by design.
-- Decryption of **historical** ciphertext by a **former recipient** — git
-  history is immutable; the remedy is rotating the credential at its source, not
-  a tool change.
-- Compromise of a developer's machine, where the private key and decrypted
-  `.env` both live.
+- access by a current recipient,
+- historical access by a former recipient,
+- compromise of a developer machine holding an identity and plaintext.
