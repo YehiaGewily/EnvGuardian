@@ -116,7 +116,9 @@ func DefaultPrompter() Prompter { return terminalPrompter{} }
 // tried and why it was rejected.
 //
 // Order: --identity flag → $ENVGUARDIAN_IDENTITY (path or raw material) →
-// ~/.config/envguardian/identity.txt → ~/.ssh/id_ed25519 → ~/.ssh/id_rsa.
+// ~/.config/envguardian/identity.txt → ~/.ssh/id_ed25519 → ~/.ssh/id_rsa. An
+// explicitly supplied flag or environment value is authoritative: if invalid,
+// resolution fails instead of silently falling through to another identity.
 func ResolveIdentity(flagPath string, p Prompter) (*Identity, error) {
 	if p == nil {
 		p = DefaultPrompter()
@@ -168,14 +170,22 @@ func ResolveIdentity(flagPath string, p Prompter) (*Identity, error) {
 
 	var attempts []Attempt
 	for _, s := range sources {
+		authoritative := (s.name == "--identity flag" && flagPath != "") ||
+			(s.name == "$ENVGUARDIAN_IDENTITY" && os.Getenv("ENVGUARDIAN_IDENTITY") != "")
 		raw, label, reason := s.get()
 		if raw == nil {
 			attempts = append(attempts, Attempt{Source: s.name, Reason: reason})
+			if authoritative {
+				return nil, &NoIdentityError{Attempts: attempts}
+			}
 			continue
 		}
 		ids, recipient, err := parseIdentities(raw, p)
 		if err != nil {
 			attempts = append(attempts, Attempt{Source: s.name, Reason: reasonForErr(err), Err: err})
+			if authoritative {
+				return nil, &NoIdentityError{Attempts: attempts}
+			}
 			continue
 		}
 		return &Identity{Identities: ids, Label: label, Recipient: recipient}, nil

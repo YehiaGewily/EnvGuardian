@@ -7,14 +7,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
-// githubBaseURL is a var (not const) so tests can point it at a stub server.
-var githubBaseURL = "https://github.com"
-
-// defaultHTTPClient is used by FetchGitHubKeys; tests call fetchGitHubKeys with
-// their own client.
-var defaultHTTPClient = &http.Client{}
+const (
+	githubBaseURL      = "https://github.com"
+	defaultHTTPTimeout = 10 * time.Second
+)
 
 // maxKeysResponse caps how much of the .keys response we read.
 const maxKeysResponse = 1 << 20 // 1 MiB
@@ -24,7 +23,7 @@ var githubUsername = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
 // FetchGitHubKeys fetches https://github.com/<username>.keys and returns every
 // ssh-ed25519 public key found. It errors clearly if the user has none.
 func FetchGitHubKeys(ctx context.Context, username string) ([]string, error) {
-	return fetchGitHubKeys(ctx, defaultHTTPClient, username)
+	return fetchGitHubKeys(ctx, &http.Client{Timeout: defaultHTTPTimeout}, username)
 }
 
 func fetchGitHubKeys(ctx context.Context, client *http.Client, username string) ([]string, error) {
@@ -50,16 +49,25 @@ func fetchGitHubKeys(ctx context.Context, client *http.Client, username string) 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch %s: GitHub returned status %d", url, resp.StatusCode)
 	}
+	if resp.ContentLength > maxKeysResponse {
+		return nil, fmt.Errorf("GitHub keys response for %q is too large (limit %d bytes)", username, maxKeysResponse)
+	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxKeysResponse))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxKeysResponse+1))
 	if err != nil {
 		return nil, fmt.Errorf("read keys for %q: %w", username, err)
+	}
+	if len(body) > maxKeysResponse {
+		return nil, fmt.Errorf("GitHub keys response for %q is too large (limit %d bytes)", username, maxKeysResponse)
 	}
 
 	var ed25519Keys []string
 	for _, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "ssh-ed25519") {
+			if _, parseErr := ParseRecipient(line); parseErr != nil {
+				return nil, fmt.Errorf("GitHub returned an invalid ssh-ed25519 key for %q: %w", username, parseErr)
+			}
 			ed25519Keys = append(ed25519Keys, line)
 		}
 	}

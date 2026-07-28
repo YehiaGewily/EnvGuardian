@@ -83,14 +83,14 @@ func TestValidate(t *testing.T) {
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: k1}, {Name: "bob", Key: k1},
 			}},
-			wantSub: "share the same key",
+			wantSub: "duplicates a key",
 		},
 		{
 			name: "duplicate key with different comment",
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: k2}, {Name: "bob", Key: k2 + " alice@laptop"},
 			}},
-			wantSub: "share the same key",
+			wantSub: "duplicates a key",
 		},
 		{
 			name: "no name",
@@ -111,7 +111,7 @@ func TestValidate(t *testing.T) {
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: "not-a-key"},
 			}},
-			wantSub: "invalid key",
+			wantSub: "is invalid",
 		},
 	}
 
@@ -161,6 +161,65 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if len(recs) != 2 {
 		t.Errorf("got %d age recipients, want 2", len(recs))
+	}
+}
+
+func TestMultiKeySchemaFlattensAndFingerprintsEveryKey(t *testing.T) {
+	legacy := ageKey(t)
+	laptop := sshKey(t)
+	workstation := sshKey(t)
+	file := &RecipientsFile{Recipients: []Recipient{
+		{Name: "legacy", Key: legacy},
+		{Name: "alice", Keys: []string{laptop, workstation}},
+	}}
+	if err := file.Validate(); err != nil {
+		t.Fatalf("multi-key schema rejected: %v", err)
+	}
+	recipients, err := file.AgeRecipients()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recipients) != 3 {
+		t.Fatalf("flattened recipients = %d, want 3", len(recipients))
+	}
+	before := file.Fingerprint()
+	file.Recipients[1].Keys[1] = sshKey(t)
+	if after := file.Fingerprint(); after == before {
+		t.Fatal("changing a secondary key did not change the recipient fingerprint")
+	}
+}
+
+func TestMultiKeySchemaRejectsDuplicatesWithinOnePerson(t *testing.T) {
+	key := sshKey(t)
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Keys: []string{key, key + " laptop"}}}}
+	if err := file.Validate(); err == nil || !strings.Contains(err.Error(), "duplicates a key") {
+		t.Fatalf("error = %v, want duplicate-key rejection", err)
+	}
+}
+
+func TestRecipientSchemaReadsLegacyKeyAndWritesKeysArray(t *testing.T) {
+	legacyKey := ageKey(t)
+	legacyTOML := "[[recipient]]\nname = \"legacy\"\nkey = \"" + legacyKey + "\"\nsource = \"manual\"\nadded_at = \"2026-07-24\"\nadded_by = \"alice\"\n"
+	legacy, err := ParseRecipients([]byte(legacyTOML))
+	if err != nil {
+		t.Fatalf("legacy key = rejected: %v", err)
+	}
+	if len(legacy.Recipients[0].PublicKeys()) != 1 {
+		t.Fatalf("legacy key did not flatten: %+v", legacy.Recipients[0])
+	}
+
+	modern := &RecipientsFile{Recipients: []Recipient{{
+		Name: "alice", Keys: []string{ageKey(t)}, Source: "manual", AddedAt: "2026-07-24", AddedBy: "alice",
+	}}}
+	encoded, err := modern.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "keys = [") || strings.Contains(string(encoded), "\nkey =") {
+		t.Fatalf("modern schema encoding =\n%s", encoded)
+	}
+	if _, err := ParseRecipients(encoded); err != nil {
+		t.Fatalf("modern schema did not round-trip: %v", err)
 	}
 }
 
