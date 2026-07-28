@@ -256,7 +256,8 @@ func TestMergeSkewDetected(t *testing.T) {
 
 	// A naive check would pass — the ciphertext is valid and has stanzas. Only
 	// the fingerprint catches the skew.
-	if err := VerifyLock(f.lock, mergedFingerprint); err == nil {
+	targets := []LockTarget{{Ciphertext: filepath.Base(f.cipher), Path: f.cipher}}
+	if err := VerifyLock(f.lock, targets, mergedFingerprint); err == nil {
 		t.Fatal("VerifyLock passed on a merge-skewed repo; check would wrongly exit 0")
 	} else if !strings.Contains(err.Error(), "out of sync") {
 		t.Errorf("error = %v, want an out-of-sync message", err)
@@ -267,7 +268,7 @@ func TestMergeSkewDetected(t *testing.T) {
 	if _, err := Seal(cfg2, recipientsOf(a, b, c), f.plain, f.cipher); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyLock(f.lock, mergedFingerprint); err != nil {
+	if err := VerifyLock(f.lock, targets, mergedFingerprint); err != nil {
 		t.Errorf("VerifyLock failed after re-encrypt: %v", err)
 	}
 }
