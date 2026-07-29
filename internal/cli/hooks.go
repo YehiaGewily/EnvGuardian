@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -8,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"filippo.io/age"
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/config"
@@ -123,11 +123,18 @@ func installHook(path, body string) error {
 		content := "#!/bin/sh\n" + block
 		return writeExecutable(path, content)
 	}
+	if !validShellShebang(string(existing)) {
+		return fmt.Errorf("refusing to modify hook %s because it has no supported shell shebang; use #!/bin/sh (or a compatible sh/bash shebang) or remove the malformed hook", path)
+	}
 
 	content := spliceBlock(string(existing), block)
-	// A pre-existing hook may lack a shebang if it was hand-written oddly; leave
-	// it as-is (we only own our block).
 	return writeExecutable(path, content)
+}
+
+func validShellShebang(content string) bool {
+	first, _, _ := strings.Cut(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	first = strings.TrimSpace(first)
+	return first == "#!/bin/sh" || first == "#!/bin/bash" || first == "#!/usr/bin/env sh" || first == "#!/usr/bin/env bash"
 }
 
 // spliceBlock replaces an existing managed block, or appends one if absent.
@@ -244,6 +251,22 @@ func gitRun(dir string, args ...string) error {
 	return nil
 }
 
+// gitBytes runs git without trimming its output. Callers that parse filenames
+// use -z and split on NUL, so whitespace and unusual path characters survive.
+func gitBytes(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...) // #nosec G204 -- fixed binary, literal args
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
+	return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+}
+
 // selfPath returns this binary's path with forward slashes (so it works from
 // /bin/sh on Windows too), falling back to the bare command name.
 func selfPath() string {
@@ -271,57 +294,214 @@ func runHookPreCommit(flags *globalFlags) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(p.Root, p.Config)
+	rootBytes, err := gitBytes(p.Root, "rev-parse", "--show-toplevel")
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil // not an EnvGuardian repo; don't interfere
+		return withExit(exitConfig, fmt.Errorf("pre-commit requires a readable Git repository: %w", err))
+	}
+	root := strings.TrimSpace(string(rootBytes))
+	configRel, err := repoRelative(root, p.Config)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	configRel = filepath.ToSlash(configRel)
+
+	staged, err := stagedFiles(root)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	configData, configPresent, err := indexBlob(root, configRel)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	if !configPresent {
+		// A removed config disables EnvGuardian in the incoming snapshot. Still
+		// use the previous snapshot, when available, to block smuggling its
+		// managed plaintext into the same commit.
+		if staged[configRel] {
+			if oldData, present, oldErr := headBlob(root, configRel); oldErr != nil {
+				return withExit(exitConfig, oldErr)
+			} else if present {
+				oldCfg, parseErr := config.Parse(root, oldData)
+				if parseErr != nil {
+					return withExit(exitConfig, fmt.Errorf("parse previous config while removing it: %w", parseErr))
+				}
+				if err := rejectStagedPlaintext(root, oldCfg); err != nil {
+					return err
+				}
+			}
+		} else if workingCfg, loadErr := config.Load(root, p.Config); loadErr == nil {
+			// The first commit may stage a plaintext before staging EnvGuardian's
+			// new config. Use the working config only as a conservative leak guard;
+			// no trust or integrity decision is derived from it.
+			if err := rejectStagedPlaintext(root, workingCfg); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	cfg, err := config.Parse(root, configData)
+	if err != nil {
+		return withExit(exitConfig, fmt.Errorf("staged config %s is invalid: %w", configRel, err))
+	}
+	if err := rejectStagedPlaintext(root, cfg); err != nil {
+		return err
+	}
+
+	recipientsRel, err := repoRelative(root, p.Recipients)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	recipientsData, present, err := indexBlob(root, filepath.ToSlash(recipientsRel))
+	if err != nil || !present {
+		if err == nil {
+			err = fmt.Errorf("staged recipients file %s is missing", filepath.ToSlash(recipientsRel))
+		}
+		return withExit(exitConfig, err)
+	}
+	rf, err := keys.ParseRecipients(recipientsData)
+	if err != nil {
+		return withExit(exitConfig, fmt.Errorf("staged recipients file is invalid: %w", err))
+	}
+	lockRel, err := repoRelative(root, p.Lock)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	lockData, present, err := indexBlob(root, filepath.ToSlash(lockRel))
+	if err != nil || !present {
+		if err == nil {
+			err = fmt.Errorf("staged lock file %s is missing", filepath.ToSlash(lockRel))
 		}
 		return withExit(exitConfig, err)
 	}
 
-	root := gitRoot(p.Root)
-	staged := stagedFiles(root)
-
-	// 1. Block any staged plaintext env file.
-	var leaking []string
+	var ciphertexts []crypt.LockBlobTarget
+	ciphertextData := make(map[string][]byte, len(cfg.Files))
 	for _, fp := range cfg.Files {
-		if staged[filepath.ToSlash(fp.Plaintext)] {
-			leaking = append(leaking, fp.Plaintext)
+		data, exists, blobErr := indexBlob(root, filepath.ToSlash(fp.Ciphertext))
+		if blobErr != nil || !exists {
+			if blobErr == nil {
+				blobErr = fmt.Errorf("staged ciphertext %s is missing", fp.Ciphertext)
+			}
+			return withExit(exitOutOfSync, blobErr)
+		}
+		ciphertexts = append(ciphertexts, crypt.LockBlobTarget{Ciphertext: fp.Ciphertext, Data: data})
+		ciphertextData[fp.Ciphertext] = data
+	}
+	if err := crypt.VerifyLockBytes(lockData, ciphertexts, rf.Fingerprint()); err != nil {
+		return withExit(exitOutOfSync, fmt.Errorf("staged lock verification failed: %w", err))
+	}
+
+	managed := map[string]bool{configRel: true, filepath.ToSlash(recipientsRel): true, filepath.ToSlash(lockRel): true}
+	for _, fp := range cfg.Files {
+		managed[filepath.ToSlash(fp.Ciphertext)] = true
+	}
+	managedChanged := false
+	for path := range staged {
+		if managed[path] {
+			managedChanged = true
+			break
 		}
 	}
-	if len(leaking) > 0 {
-		return withExit(exitConfig, fmt.Errorf(
-			"refusing to commit plaintext secret file(s): %s\n  these are encrypted into their .age counterparts; never commit the plaintext.\n  fix: `git rm --cached %s` and commit the .age file instead",
-			strings.Join(leaking, ", "), strings.Join(leaking, " ")))
+	if !managedChanged {
+		return nil // exact staged snapshot passed structural verification
 	}
 
-	// 2. Fail if any ciphertext is out of date relative to the plaintext.
-	var ageIDs []age.Identity
-	if id, rerr := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter()); rerr == nil {
-		ageIDs = id.Identities
+	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+	if err != nil {
+		return err
 	}
 	for _, fp := range cfg.Files {
-		st, err := crypt.Inspect(ageIDs, fp.CiphertextPath, fp.PlaintextPath)
-		if err != nil {
-			return withExit(exitConfig, err)
+		working, readErr := os.ReadFile(fp.CiphertextPath) //nolint:gosec // validated managed ciphertext
+		if readErr != nil {
+			return withExit(exitOutOfSync, fmt.Errorf("read working ciphertext %s: %w", fp.Ciphertext, readErr))
 		}
-		if st.Decryptable && st.PlaintextExists && !st.Matches {
-			return withExit(exitOutOfSync, fmt.Errorf(
-				"%s is out of date: %s changed but was not re-encrypted; run `envguardian encrypt` before committing",
-				fp.Ciphertext, fp.Plaintext))
+		if !bytes.Equal(working, ciphertextData[fp.Ciphertext]) {
+			return withExit(exitOutOfSync, fmt.Errorf("working and staged ciphertext differ for %s; stage the complete ciphertext and lock together", fp.Ciphertext))
+		}
+		_, sealed, decryptErr := crypt.DecryptBytesToDotenv(id.Identities, ciphertextData[fp.Ciphertext])
+		if decryptErr != nil {
+			return decryptErr
+		}
+		local, parseErr := parsePlaintext(fp.PlaintextPath)
+		if parseErr != nil {
+			return withExit(exitConfig, parseErr)
+		}
+		added, removed, changed := diffKeys(sealed, local)
+		if len(added)+len(removed)+len(changed) != 0 {
+			return withExit(exitOutOfSync, fmt.Errorf("%s is out of date with staged %s (added keys: %v; removed keys: %v; changed keys: %v); run `envguardian encrypt` and stage ciphertext plus lock", fp.Plaintext, fp.Ciphertext, added, removed, changed))
 		}
 	}
 	return nil
 }
 
-// stagedFiles returns the set of paths staged in the index (forward-slashed).
-func stagedFiles(root string) map[string]bool {
-	set := map[string]bool{}
-	out := gitOutput(root, "diff", "--cached", "--name-only")
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			set[filepath.ToSlash(line)] = true
+func rejectStagedPlaintext(root string, cfg *config.Config) error {
+	var leaking []string
+	for _, fp := range cfg.Files {
+		_, present, err := indexBlob(root, filepath.ToSlash(fp.Plaintext))
+		if err != nil {
+			return withExit(exitConfig, err)
+		}
+		if present {
+			leaking = append(leaking, fp.Plaintext)
 		}
 	}
-	return set
+	if len(leaking) == 0 {
+		return nil
+	}
+	return withExit(exitConfig, fmt.Errorf("refusing to commit plaintext secret file(s): %s\n  fix: `git rm --cached %s` and commit the ciphertext instead", strings.Join(leaking, ", "), strings.Join(leaking, " ")))
+}
+
+// stagedFiles returns the exact NUL-delimited paths changed in the index.
+func stagedFiles(root string) (map[string]bool, error) {
+	set := map[string]bool{}
+	out, err := gitBytes(root, "diff", "--cached", "--name-only", "-z")
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range bytes.Split(out, []byte{0}) {
+		if len(name) != 0 {
+			set[filepath.ToSlash(string(name))] = true
+		}
+	}
+	return set, nil
+}
+
+func indexBlob(root, path string) ([]byte, bool, error) {
+	listed, err := gitBytes(root, "ls-files", "--stage", "-z", "--", path)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(listed) == 0 {
+		return nil, false, nil
+	}
+	data, err := gitBytes(root, "show", ":"+path)
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
+func headBlob(root, path string) ([]byte, bool, error) {
+	verify := exec.Command("git", "rev-parse", "--verify", "--quiet", "HEAD") // #nosec G204 -- fixed command
+	verify.Dir = root
+	if out, err := verify.CombinedOutput(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, false, nil // legitimate unborn repository
+		}
+		return nil, false, fmt.Errorf("git rev-parse --verify HEAD: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	listed, err := gitBytes(root, "ls-tree", "-z", "--name-only", "HEAD", "--", path)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(listed) == 0 {
+		return nil, false, nil
+	}
+	data, err := gitBytes(root, "show", "HEAD:"+path)
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
 }

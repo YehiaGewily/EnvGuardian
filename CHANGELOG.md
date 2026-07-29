@@ -24,6 +24,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recipient fingerprint, and a SHA-256 digest of the exact public ciphertext.
 - Made recipient addition plan first and commit ciphertext, recipients, and
   lock as one rollback-capable transaction, with the lock written last.
+- Made repository `check` require decryption by default, with an explicit
+  `--structural-only` mode, and added `check-local` for developer plaintext
+  synchronization. Unreadable or malformed rotation ledgers now fail closed.
+- Rebuilt pre-commit verification around exact Git-index blobs, including
+  staged lock/ciphertext/recipient checks, plaintext rejection, identity
+  enforcement for managed changes, partial-staging detection, and safe config
+  removal handling.
 
 ### Changed
 
@@ -40,6 +47,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `key =` reads; v0.1.1 still rejects multiple GitHub Ed25519 keys explicitly.
 - Added a bounded GitHub HTTP client, oversized-response rejection, and
   validation of every returned Ed25519 key.
+- Replaced the one-sided Git textconv prototype with a local-only external diff
+  command that compares both decrypted sides and reports added, removed, and
+  value-changed key names without emitting plaintext derivatives.
+- Hook installation now refuses pre-existing hook files without a valid
+  shebang instead of creating a hook Git cannot execute reliably.
+- Canonicalized the current directory before rendering relative CLI paths and
+  made path-resolution tests compare canonical paths, covering macOS `/var`
+  aliases and Windows long-name versus 8.3 path aliases.
 
 ## [0.1.0] - 2026-07-28
 

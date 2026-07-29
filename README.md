@@ -27,15 +27,16 @@ go run ./cmd/envguardian version
 ```
 
 Do not install hooks from `v0.1.0`. Development code for `v0.1.1` now contains
-the Stage A path-containment and explicit-acceptance controls and the Stage B
-transactional sealing core, but the project remains unsupported until the
-remaining release gates are complete.
+the Stage A path-containment and explicit-acceptance controls, the Stage B
+transactional sealing core, and the Stage C fail-closed verification paths,
+but the project remains unsupported until the remaining release gates are
+complete.
 
 ## Current implementation status
 
 The prototype contains `init`, `encrypt`, `decrypt`, `add-recipient`,
-`list-recipients`, `check`, `install-hooks`, and `diff`. Their presence does not
-mean they are ready to protect real secrets:
+`list-recipients`, `check`, `check-local`, `install-hooks`, and `diff`. Their
+presence does not mean they are ready to protect real secrets:
 
 - Managed plaintext and ciphertext paths are resolved at config load, confined
   to the repository, checked through existing-parent symlinks, and excluded
@@ -54,12 +55,25 @@ mean they are ready to protect real secrets:
 - `add-recipient` plans before writing and commits ciphertext, recipients, and
   lock as one rollback-capable logical transaction. Missing local plaintext is
   recovered in memory from the existing ciphertext.
-- `check` cannot prove an absent, uncommitted local `.env` is current. Stage C
-  will separate repository checks from `check-local` synchronization checks.
+- `check` verifies committed repository integrity: config and paths,
+  recipients, lock digest/fingerprint, ciphertext decryption and dotenv
+  validity, gitignore state, and the rotation ledger. It requires an identity;
+  `--structural-only` is the explicit fork-PR mode when CI secrets are absent.
+  It deliberately does not compare uncommitted local plaintext because CI
+  cannot observe a developer's `.env`.
+- `check-local` compares the developer's plaintext with decryptable ciphertext
+  and fails on a missing plaintext unless `--allow-missing` is explicit.
 - Automatic hooks compare the exact incoming commit with a local accepted
   commit. Changes to config, recipients, or ciphertext require an explicit
   `decrypt --accept-changes`; hook decryption reads committed blobs rather than
   unreviewed working-tree paths.
+- The pre-commit hook verifies config, recipients, lock, and ciphertext from
+  the Git index, rejects staged plaintext, detects partial staging, and requires
+  an identity when managed state changes. Commits touching no managed file run
+  structural verification only.
+- `diff --install` registers a repository-local, two-sided external Git diff
+  driver. It reports `+ KEY`, `- KEY`, and `~ KEY`; comments and reordering are
+  ignored, and values or other plaintext derivatives are never emitted.
 - age provides confidentiality, not sender authentication. Ciphertext
   provenance remains unverified until Stage D.
 - Revocation, rotation commands, and the merge driver are not implemented.

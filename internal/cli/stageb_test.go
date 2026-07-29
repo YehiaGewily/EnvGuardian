@@ -190,10 +190,18 @@ func TestMalformedDotenvAndConfigUseExitCodeThree(t *testing.T) {
 }
 
 func TestPreCommitWithoutConfigDoesNothing(t *testing.T) {
-	dir := t.TempDir()
+	dir := gitInitRepo(t)
 	t.Chdir(dir)
 	if err := runHookPreCommit(&globalFlags{}); err != nil {
 		t.Fatalf("pre-commit without config = %v, want nil", err)
+	}
+}
+
+func TestPreCommitGitFailureFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := runHookPreCommit(&globalFlags{}); err == nil {
+		t.Fatal("pre-commit outside a Git repository succeeded; want fail-closed error")
 	}
 }
 

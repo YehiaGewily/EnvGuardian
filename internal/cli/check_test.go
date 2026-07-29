@@ -38,14 +38,14 @@ func TestCheckAllPass(t *testing.T) {
 	if strings.Contains(out, "[FAIL]") {
 		t.Errorf("unexpected failure in check output:\n%s", out)
 	}
-	for _, want := range []string{"config version", "recipients", "recipient set in sync", "ciphertext", "rotations"} {
+	for _, want := range []string{"config", "recipients", "lock", "ciphertext", "rotations"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("check output missing %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestCheckDetectsStaleCiphertext(t *testing.T) {
+func TestCheckAndCheckLocalHaveSeparateResponsibilities(t *testing.T) {
 	pinDate(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -57,11 +57,19 @@ func TestCheckDetectsStaleCiphertext(t *testing.T) {
 	}
 
 	out, _, code := runCLI(t, "check", "--identity", idPath)
-	if code != exitOutOfSync {
-		t.Fatalf("check exit = %d, want %d\n%s", code, exitOutOfSync, out)
+	if code != exitOK {
+		t.Fatalf("repository check exit = %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "STALE") {
-		t.Errorf("check did not report stale ciphertext:\n%s", out)
+	if strings.Contains(out, "STALE") || strings.Contains(out, "out of sync") {
+		t.Errorf("repository check inspected uncommitted plaintext:\n%s", out)
+	}
+
+	out, _, code = runCLI(t, "check-local", "--identity", idPath)
+	if code != exitOutOfSync {
+		t.Fatalf("check-local exit = %d, want %d\n%s", code, exitOutOfSync, out)
+	}
+	if !strings.Contains(out, "out of sync") || !strings.Contains(out, "changed keys: [A]") {
+		t.Errorf("check-local did not report key-only staleness:\n%s", out)
 	}
 }
 
@@ -71,7 +79,7 @@ func TestCheckReportsAllFailures(t *testing.T) {
 	t.Chdir(dir)
 	idPath := setupRepo(t, dir, "A=1\n")
 
-	// Break two things at once: stale ciphertext AND a corrupted lock.
+	// Break two things at once: stale plaintext AND a corrupted lock.
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("A=2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +87,61 @@ func TestCheckReportsAllFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, code := runCLI(t, "check", "--identity", idPath)
+	out, _, code := runCLI(t, "check-local", "--identity", idPath)
 	if code != exitOutOfSync {
 		t.Fatalf("exit = %d, want %d", code, exitOutOfSync)
 	}
-	if !strings.Contains(out, "STALE") || !strings.Contains(out, "recipient set in sync") {
+	if !strings.Contains(out, "out of sync") || !strings.Contains(out, "lock") {
 		t.Errorf("expected multiple failures reported:\n%s", out)
+	}
+}
+
+func TestCheckRequiresIdentityUnlessStructuralOnly(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	setupRepo(t, dir, "A=1\n")
+	t.Setenv("ENVGUARDIAN_IDENTITY", "")
+
+	_, _, code := runCLI(t, "check", "--identity", filepath.Join(dir, "missing-identity"))
+	if code != exitIdentity {
+		t.Fatalf("check without usable identity exit=%d, want %d", code, exitIdentity)
+	}
+	out, _, code := runCLI(t, "check", "--structural-only")
+	if code != exitOK || !strings.Contains(out, "explicit --structural-only") {
+		t.Fatalf("structural-only check exit=%d\n%s", code, out)
+	}
+}
+
+func TestCheckLocalMissingPlaintextPolicy(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := setupRepo(t, dir, "A=1\n")
+	if err := os.Remove(filepath.Join(dir, ".env")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, code := runCLI(t, "check-local", "--identity", idPath); code != exitOutOfSync {
+		t.Fatalf("check-local missing plaintext exit=%d, want %d", code, exitOutOfSync)
+	}
+	out, _, code := runCLI(t, "check-local", "--identity", idPath, "--allow-missing")
+	if code != exitOK || !strings.Contains(out, "explicitly allowed") {
+		t.Fatalf("check-local --allow-missing exit=%d\n%s", code, out)
+	}
+}
+
+func TestCheckUnreadableRotationLedgerFails(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := setupRepo(t, dir, "A=1\n")
+	if err := os.Mkdir(filepath.Join(dir, ".envguardian", "rotation.toml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runCLI(t, "check", "--identity", idPath)
+	if code != exitConfig || !strings.Contains(out, "cannot read rotation ledger") {
+		t.Fatalf("unreadable rotation ledger exit=%d\n%s", code, out)
 	}
 }
 

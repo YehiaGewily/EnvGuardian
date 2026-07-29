@@ -209,4 +209,57 @@ unchanged under ordinary process errors.
 **Done:** malformed input and identity failures have stable CLI semantics, and
 commands operate on the intended repository root.
 
+## Stage C — Verification that fails closed
+
+### Phase 6 — Split `check` and `check-local`
+
+- [x] Make `check` verify supported config and safe paths, valid recipients,
+  ciphertext existence, lock digest/fingerprint, decryptability, dotenv
+  validity, plaintext gitignore state, and readable rotation state.
+- [x] Require an identity and successful decryption by default; provide the
+  explicit `--structural-only` mode for fork PRs without secrets.
+- [x] Fail on malformed or unreadable rotation ledgers. Only a genuinely
+  absent ledger means no pending rotations.
+- [x] Add `check-local` to compare working plaintext semantically with
+  ciphertext and fail on a missing plaintext unless `--allow-missing` is set.
+- [x] Document that CI cannot compare ciphertext with an uncommitted local
+  plaintext file.
+
+**Done:** repository verification never succeeds because an implicit identity
+or content check was skipped; local synchronization has its own command.
+
+### Phase 7 — Rebuild pre-commit around the index
+
+- [x] Read staged config, recipients, lock, and ciphertext with exact Git-index
+  blob commands and parse changed paths as NUL-delimited output.
+- [x] Treat every Git subprocess error as a verification failure.
+- [x] Reject configured plaintext present in the index, including force-added
+  files and plaintext staged while removing EnvGuardian configuration.
+- [x] Verify staged recipients against staged lock, and staged lock digests
+  against staged ciphertext bytes.
+- [x] When managed state changes, require an identity, compare local plaintext
+  with staged ciphertext, and reject working/staged ciphertext divergence.
+- [x] For commits touching no managed file, perform structural verification
+  without requiring an identity.
+- [x] Handle configuration removal and refuse existing hook files with no
+  valid shebang.
+
+**Done:** pre-commit validates the snapshot being committed rather than a
+potentially different working tree.
+
+### Phase 8 — Real external diff driver
+
+- [x] Add hidden `diff-driver PATH OLD OLD_HEX OLD_MODE NEW NEW_HEX NEW_MODE`.
+- [x] Decrypt and parse both sides independently, then emit only `+ KEY`,
+  `- KEY`, and `~ KEY`.
+- [x] Fail clearly if either side cannot be read, decrypted, or parsed.
+- [x] Register a repository-local `diff.envguardian.command`; remove the
+  obsolete one-sided `textconv` setting and shell-quote the executable path.
+- [x] Test value-only changes, additions/removals, comment/reorder policy,
+  non-recipient failure, sentinel non-disclosure, and special-character shell
+  quoting.
+
+**Done:** Git diffs surface value-only changes by key name without revealing
+values or other plaintext derivatives.
+
 Later stage checklists will be added under user direction.

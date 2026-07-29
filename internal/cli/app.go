@@ -148,6 +148,11 @@ func loadRecipients(p config.Paths) (*keys.RecipientsFile, error) {
 func display(path string) string {
 	cwd, cwdErr := os.Getwd()
 	abs, absErr := filepath.Abs(path)
+	if cwdErr == nil {
+		if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = resolved
+		}
+	}
 	if cwdErr == nil && absErr == nil && pathWithinRoot(cwd, abs) {
 		if rel, err := filepath.Rel(cwd, abs); err == nil {
 			return filepath.ToSlash(rel)

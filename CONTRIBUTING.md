@@ -33,6 +33,10 @@ rules; they do not depend on a local or tool-specific instruction file.
    feature claim is a release-blocking bug.
 9. **Keep the public API surface at zero.** Project packages live under
    `internal/`.
+10. **Verify the snapshot that will be committed.** Pre-commit checks read
+    config, recipients, lock, and ciphertext from Git's index. Git subprocess
+    errors fail closed; working-tree state must not substitute for staged
+    security metadata.
 
 For `v0.1.1`, changes must preserve the single configured plaintext/ciphertext
 pair. Multi-file support returns in `v0.2.0` on top of the transactional

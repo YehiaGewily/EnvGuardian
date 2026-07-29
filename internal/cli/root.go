@@ -93,10 +93,12 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newAddRecipientCmd(flags),
 		newListRecipientsCmd(flags),
 		newCheckCmd(flags),
+		newCheckLocalCmd(flags),
 		newInstallHooksCmd(flags),
 		newHookAutoDecryptCmd(flags),
 		newHookPreCommitCmd(flags),
 		newDiffCmd(flags),
+		newDiffDriverCmd(flags),
 	)
 
 	return root

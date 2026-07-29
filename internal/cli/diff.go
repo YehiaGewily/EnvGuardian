@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -18,46 +20,66 @@ import (
 func newDiffCmd(flags *globalFlags) *cobra.Command {
 	var install bool
 	cmd := &cobra.Command{
-		Use:   "diff [ciphertext-file]",
+		Use:   "diff",
 		Short: "Show which keys changed (names only, never values)",
-		Long: "With no argument, diffs each working plaintext against its committed\n" +
-			"ciphertext. With a file argument it acts as a git textconv driver,\n" +
-			"emitting the decrypted key names (only) so `git diff` on .age files is\n" +
-			"readable. Values, lengths, and hashes are never emitted.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			switch {
-			case install:
+		Long:  "Compare working plaintext with ciphertext and emit only added, removed, or changed key names. Values and plaintext derivatives are never emitted.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if install {
 				return installDiffDriver(cmd, flags)
-			case len(args) == 1:
-				return textconvDiff(cmd, flags, args[0])
-			default:
-				return workingDiff(cmd, flags)
 			}
+			return workingDiff(cmd, flags)
 		},
 	}
 	cmd.Flags().BoolVar(&install, "install", false, "register the git diff driver (.gitattributes + git config)")
 	return cmd
 }
 
-// textconvDiff is the git textconv entry point: emit the sorted key NAMES of the
-// decrypted file, one per line. Never values — this output can reach CI logs.
-func textconvDiff(cmd *cobra.Command, flags *globalFlags, file string) error {
+func newDiffDriverCmd(flags *globalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:    "diff-driver PATH OLD OLD_HEX OLD_MODE NEW NEW_HEX NEW_MODE",
+		Hidden: true,
+		Args:   cobra.ExactArgs(7),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDiffDriver(cmd, flags, args)
+		},
+	}
+}
+
+// runDiffDriver is Git's external-diff entry point. Unlike textconv, it sees
+// both sides and can therefore report value-only changes without emitting any
+// value, length, hash, or prefix.
+func runDiffDriver(cmd *cobra.Command, flags *globalFlags, args []string) error {
 	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
 	if err != nil {
 		return err
 	}
-	f, err := crypt.DecryptToDotenv(id.Identities, file)
+	oldData, err := os.ReadFile(args[1]) //nolint:gosec // temp path supplied by Git's external diff protocol
 	if err != nil {
-		// Not a recipient / unreadable: fail so git falls back to a binary diff
-		// notice rather than showing a misleading empty diff.
-		return fmt.Errorf("cannot decrypt %s for diff: %w", file, err)
+		return fmt.Errorf("read old ciphertext for %s: %w", args[0], err)
 	}
-	keyNames := append([]string(nil), f.Keys()...)
-	sort.Strings(keyNames)
+	newData, err := os.ReadFile(args[4]) //nolint:gosec // temp path supplied by Git's external diff protocol
+	if err != nil {
+		return fmt.Errorf("read new ciphertext for %s: %w", args[0], err)
+	}
+	_, oldFile, err := crypt.DecryptBytesToDotenv(id.Identities, oldData)
+	if err != nil {
+		return fmt.Errorf("decrypt old side of %s: %w", args[0], err)
+	}
+	_, newFile, err := crypt.DecryptBytesToDotenv(id.Identities, newData)
+	if err != nil {
+		return fmt.Errorf("decrypt new side of %s: %w", args[0], err)
+	}
+	added, removed, changed := diffKeys(oldFile, newFile)
 	out := cmd.OutOrStdout()
-	for _, k := range keyNames {
-		fmt.Fprintln(out, k)
+	for _, key := range added {
+		fmt.Fprintf(out, "+ %s\n", key)
+	}
+	for _, key := range removed {
+		fmt.Fprintf(out, "- %s\n", key)
+	}
+	for _, key := range changed {
+		fmt.Fprintf(out, "~ %s\n", key)
 	}
 	return nil
 }
@@ -152,9 +174,18 @@ func installDiffDriver(cmd *cobra.Command, flags *globalFlags) error {
 		return err
 	}
 
-	textconv := fmt.Sprintf("%q diff", selfPath())
-	if err := gitRun(root, "config", "diff.envguardian.textconv", textconv); err != nil {
+	command := shellQuote(selfPath()) + " diff-driver"
+	if err := gitRun(root, "config", "--local", "diff.envguardian.command", command); err != nil {
 		return err
+	}
+	// Remove the obsolete one-sided driver if an earlier development build
+	// installed it. A missing value is the expected clean state.
+	unset := exec.Command("git", "config", "--local", "--unset-all", "diff.envguardian.textconv") // #nosec G204 -- fixed command
+	unset.Dir = root
+	if out, unsetErr := unset.CombinedOutput(); unsetErr != nil {
+		if exitErr, ok := unsetErr.(*exec.ExitError); !ok || exitErr.ExitCode() != 5 {
+			return fmt.Errorf("remove obsolete diff textconv setting: %w: %s", unsetErr, strings.TrimSpace(string(out)))
+		}
 	}
 
 	out := cmd.OutOrStdout()
@@ -163,9 +194,16 @@ func installDiffDriver(cmd *cobra.Command, flags *globalFlags) error {
 	} else {
 		fmt.Fprintln(out, ".gitattributes already has the diff attribute")
 	}
-	fmt.Fprintln(out, "configured git diff.envguardian.textconv")
+	fmt.Fprintln(out, "configured local git diff.envguardian.command")
 	fmt.Fprintln(out, "commit .gitattributes so teammates get readable `git diff` on .age files")
 	return nil
+}
+
+// shellQuote returns one POSIX-shell word. Git executes external diff command
+// strings through a shell even on Windows, so quotes, dollars, and backticks in
+// the executable path must stay literal.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 // parsePlaintext reads and parses a plaintext env file.
