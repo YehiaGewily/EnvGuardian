@@ -21,12 +21,13 @@ type stubPrompter struct {
 	interactive bool
 	pass        string
 	asked       bool
+	err         error
 }
 
 func (s *stubPrompter) Interactive() bool { return s.interactive }
 func (s *stubPrompter) Passphrase(string) ([]byte, error) {
 	s.asked = true
-	return []byte(s.pass), nil
+	return []byte(s.pass), s.err
 }
 
 func writeAgeIdentity(t *testing.T, dir string) (path, recipient string) {
@@ -101,6 +102,13 @@ func TestResolveIdentitySSH(t *testing.T) {
 	if len(id.Identities) != 1 {
 		t.Errorf("got %d identities, want 1", len(id.Identities))
 	}
+	wantPath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.SSHKeyPath != wantPath {
+		t.Errorf("SSHKeyPath = %q, want %q", id.SSHKeyPath, wantPath)
+	}
 }
 
 func TestResolveIdentityNoneFound(t *testing.T) {
@@ -128,6 +136,21 @@ func TestResolveIdentityNoneFound(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message missing %q:\n%s", want, msg)
 		}
+	}
+}
+
+func TestIdentityErrorsDoNotExposeKeyMaterial(t *testing.T) {
+	const sentinel = "SENTINEL-PRIVATE-KEY-MATERIAL-DO-NOT-PRINT"
+	t.Setenv("ENVGUARDIAN_IDENTITY", sentinel)
+	_, err := ResolveIdentity("", &stubPrompter{interactive: false})
+	if err == nil {
+		t.Fatal("expected malformed identity error")
+	}
+	if strings.Contains(err.Error(), sentinel) {
+		t.Fatal("identity diagnostic exposed private key material")
+	}
+	if !strings.Contains(err.Error(), string(ReasonMalformed)) {
+		t.Fatalf("identity diagnostic omitted its safe error category: %v", err)
 	}
 }
 
@@ -193,5 +216,69 @@ func TestResolvePassphraseNoTTY(t *testing.T) {
 	}
 	if len(id.Identities) != 1 {
 		t.Errorf("got %d identities, want 1", len(id.Identities))
+	}
+}
+
+func TestResolveEncryptedSSHIdentity(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := gossh.MarshalPrivateKeyWithPassphrase(privateKey, "", []byte("correct horse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id, err := ResolveIdentity(path, &stubPrompter{interactive: true, pass: "correct horse"})
+	if err != nil {
+		t.Fatalf("resolve encrypted SSH identity: %v", err)
+	}
+	if len(id.Identities) != 1 || !strings.HasPrefix(id.Recipient, "ssh-ed25519 ") {
+		t.Fatal("encrypted SSH identity did not produce a usable SSH recipient")
+	}
+}
+
+func TestEncryptedAgeIdentityFailuresAreSanitized(t *testing.T) {
+	realID, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient, err := age.NewScryptRecipient("correct passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encrypted bytes.Buffer
+	writer, err := age.Encrypt(&encrypted, recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte(realID.String())); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "encrypted-age-key")
+	if err := os.WriteFile(path, encrypted.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveIdentity(path, &stubPrompter{interactive: true, pass: "wrong passphrase"})
+	if err == nil {
+		t.Fatal("wrong passphrase unexpectedly resolved")
+	}
+	if strings.Contains(err.Error(), realID.String()) {
+		t.Fatal("identity error exposed decrypted key material")
+	}
+	const promptSentinel = "SENTINEL-PROMPTER-SECRET"
+	_, err = ResolveIdentity(path, &stubPrompter{interactive: true, err: errors.New(promptSentinel)})
+	if err == nil {
+		t.Fatal("prompter failure unexpectedly resolved")
+	}
+	if strings.Contains(err.Error(), promptSentinel) {
+		t.Fatal("identity error exposed upstream prompter text")
 	}
 }

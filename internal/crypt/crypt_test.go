@@ -210,6 +210,31 @@ func TestSealFirstEncryptNeedsNoIdentity(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsNonDotenvBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	party := newParty(t)
+	ciphertext, err := encryptBytes([]byte("this is not dotenv\nSECRET-VALUE"), []age.Recipient{party.rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipherPath := filepath.Join(dir, "bad.env.age")
+	plainPath := filepath.Join(dir, ".env")
+	if err := os.WriteFile(cipherPath, ciphertext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = Open(Config{Identities: []age.Identity{party.id}, Label: "test"}, cipherPath, plainPath)
+	var invalid *InvalidDotenvError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Open error = %v, want InvalidDotenvError", err)
+	}
+	if _, statErr := os.Stat(plainPath); !os.IsNotExist(statErr) {
+		t.Fatalf("plaintext was written for invalid dotenv payload: %v", statErr)
+	}
+	if strings.Contains(err.Error(), "SECRET-VALUE") {
+		t.Fatalf("error leaked decrypted content: %v", err)
+	}
+}
+
 // TestMergeSkewDetected reproduces the scenario that motivates the fingerprint:
 // two teammates add a recipient on separate branches, recipients.toml merges to
 // include both, but the ciphertext merge takes only one side. Nothing about the
@@ -231,7 +256,8 @@ func TestMergeSkewDetected(t *testing.T) {
 
 	// A naive check would pass — the ciphertext is valid and has stanzas. Only
 	// the fingerprint catches the skew.
-	if err := VerifyLock(f.lock, mergedFingerprint); err == nil {
+	targets := []LockTarget{{Ciphertext: filepath.Base(f.cipher), Path: f.cipher}}
+	if err := VerifyLock(f.lock, targets, mergedFingerprint); err == nil {
 		t.Fatal("VerifyLock passed on a merge-skewed repo; check would wrongly exit 0")
 	} else if !strings.Contains(err.Error(), "out of sync") {
 		t.Errorf("error = %v, want an out-of-sync message", err)
@@ -242,7 +268,51 @@ func TestMergeSkewDetected(t *testing.T) {
 	if _, err := Seal(cfg2, recipientsOf(a, b, c), f.plain, f.cipher); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyLock(f.lock, mergedFingerprint); err != nil {
+	if err := VerifyLock(f.lock, targets, mergedFingerprint); err != nil {
 		t.Errorf("VerifyLock failed after re-encrypt: %v", err)
+	}
+}
+
+func TestDecryptDiagnosticsNeverExposeCiphertextOrPlaintext(t *testing.T) {
+	const sentinel = "SENTINEL-SECRET-VALUE-DO-NOT-PRINT"
+	p := newParty(t)
+
+	if _, _, err := DecryptBytesToDotenv([]age.Identity{p.id}, []byte(sentinel)); err == nil {
+		t.Fatal("expected malformed ciphertext error")
+	} else if strings.Contains(err.Error(), sentinel) {
+		t.Fatal("decryption diagnostic exposed ciphertext input")
+	}
+
+	ciphertext, err := encryptBytes([]byte(`TOKEN="safe" `+sentinel), []age.Recipient{p.rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := DecryptBytesToDotenv([]age.Identity{p.id}, ciphertext); err == nil {
+		t.Fatal("expected malformed dotenv error")
+	} else if strings.Contains(err.Error(), sentinel) {
+		t.Fatal("decryption diagnostic exposed plaintext value")
+	}
+}
+
+func TestSecretSafeErrorTypesAndSemanticComparison(t *testing.T) {
+	invalid := &InvalidPlaintextError{Path: ".env", Err: errors.New("SENTINEL")}
+	if strings.Contains(invalid.Error(), "SENTINEL") || !errors.Is(invalid, invalid.Err) {
+		t.Fatal("InvalidPlaintextError did not preserve safe rendering and unwrapping")
+	}
+	identity := (&IdentityRequiredError{CiphertextPath: ".env.age", Reason: "identity unavailable"}).Error()
+	divergence := (&DivergenceError{PlaintextPath: ".env", CiphertextPath: ".env.age"}).Error()
+	if !strings.Contains(identity, "cannot verify") || !strings.Contains(divergence, "refusing to replace") {
+		t.Fatal("planner error types omitted their safe remediation")
+	}
+
+	for _, pair := range [][2]string{
+		{"A=1\n", "A=1\nB=2\n"},
+		{"A=1\n", "B=1\n"},
+		{"A=1\n", "A=2\n"},
+		{"not dotenv", "A=1\n"},
+	} {
+		if sameContent([]byte(pair[0]), []byte(pair[1])) {
+			t.Fatal("different dotenv inputs compared equal")
+		}
 	}
 }

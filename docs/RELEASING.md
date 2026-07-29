@@ -1,59 +1,57 @@
 # Releasing
 
-Releases are cut by pushing a semver tag. The
-[`release` workflow](../.github/workflows/release.yml) runs
-[GoReleaser](https://goreleaser.com), which builds binaries for
-linux/darwin/windows × amd64/arm64, publishes a GitHub Release with checksums,
-and updates the Homebrew tap.
+EnvGuardian currently has no supported release. `v0.1.0` is an unreleased
+development tag; do not delete it or move it. The first hardening release will
+be `v0.1.1` after Stages A through E in [PLAN.md](PLAN.md) are complete.
 
-## One-time setup: the Homebrew tap
+The [release workflow](../.github/workflows/release.yml) has two paths:
 
-1. **Create the tap repo.** On GitHub, create a public repository named
-   **`homebrew-tap`** under your account (`YehiaGewily/homebrew-tap`). Homebrew
-   requires the `homebrew-` prefix; users install with
-   `brew install YehiaGewily/tap/envguardian`.
+- a manual `workflow_dispatch` runs a GoReleaser snapshot and publishes
+  nothing;
+- pushing a future `v*` tag runs the publishing path.
 
-2. **Create a token.** The default `GITHUB_TOKEN` can only write to the current
-   repo, so GoReleaser needs a Personal Access Token to push the cask to the tap
-   repo:
-   - Fine-grained PAT with **Contents: Read and write** on `homebrew-tap`, or a
-     classic PAT with the `repo` scope.
+The publishing path must not be used until the Stage G release gate is complete.
+Homebrew publishing is intentionally absent because no tap exists. Prebuilt
+binaries are not available until a supported GitHub release is actually
+published.
 
-3. **Add it as a secret.** In this repo's
-   *Settings → Secrets and variables → Actions*, add a secret named
-   **`HOMEBREW_TAP_TOKEN`** with that PAT.
+## Controlled verification
 
-> Not ready for Homebrew yet? Comment out the `homebrew_casks:` block in
-> [`.goreleaser.yaml`](../.goreleaser.yaml) and the release will still publish
-> binaries — just no `brew` formula.
+From GitHub, open **Actions → release → Run workflow**. A manual run executes
+`goreleaser release --snapshot --clean`; snapshot artifacts remain attached to
+the workflow run and no GitHub release or package is published.
 
-## Coverage (optional)
-
-The README shows a [Go Report Card](https://goreportcard.com) badge, which needs
-no setup. If you want a coverage badge too, connect the repo at
-[codecov.io](https://codecov.io) and add a `codecov/codecov-action` upload step
-to the `test` job in [`ci.yml`](../.github/workflows/ci.yml) (generate the
-profile with `go test -coverprofile=coverage.out ./...`).
-
-## Cutting a release
-
-1. Make sure `main` is green and `CHANGELOG.md` has the release notes moved from
-   `## [Unreleased]` into a new `## [x.y.z]` section.
-2. Tag and push:
-
-   ```bash
-   git tag -a v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
-   ```
-
-3. The `release` workflow runs automatically. Watch it under the repo's
-   **Actions** tab; the GitHub Release and updated tap appear when it finishes.
-
-## Dry run
-
-Verify the config and build without publishing anything:
+For a local dry run:
 
 ```bash
 goreleaser check
-goreleaser release --snapshot --clean   # artifacts land in ./dist
+goreleaser release --snapshot --clean
 ```
+
+## Future `v0.1.1` release procedure
+
+Do not run these commands until the release gate in the plan is complete.
+
+1. Confirm `main` is protected and green, every required check ran on the exact
+   commit, and `CHANGELOG.md` contains final `v0.1.1` notes.
+2. Confirm the release workflow and GoReleaser publishing configuration against
+   a manual snapshot run.
+3. Create and push a signed annotated tag:
+
+   ```bash
+   git tag -s v0.1.1 -m "v0.1.1"
+   git push origin v0.1.1
+   ```
+
+4. Verify checksums and downloaded binaries before documenting installation.
+
+## Future Homebrew work
+
+Stage G may add a Homebrew tap after the tap repository, credentials, publishing
+configuration, and an end-to-end release test exist. Do not add installation
+instructions before the package is publicly retrievable and verified.
+
+## Coverage badge
+
+The README does not claim a coverage percentage. Add a coverage badge only
+after CI uploads a coverage report and the badge reflects the current commit.

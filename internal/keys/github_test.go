@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // roundTripFunc lets a test act as an http.Client transport (a stubbed HTTP
@@ -27,13 +28,11 @@ func stubClient(status int, body string) (*http.Client, *string) {
 	return c, &gotPath
 }
 
-const (
-	edKey1 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyOneExampleKeyOneExampleKeyO01"
-	edKey2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyTwoExampleKeyTwoExampleKeyT02"
-	rsaKey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgExampleRsaKeyExampleRsaKey user@host"
-)
+const rsaKey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgExampleRsaKeyExampleRsaKey user@host"
 
 func TestFetchGitHubKeys(t *testing.T) {
+	edKey1 := sshKey(t)
+	edKey2 := sshKey(t)
 	tests := []struct {
 		name     string
 		status   int
@@ -115,5 +114,29 @@ func TestFetchGitHubKeysInvalidUsername(t *testing.T) {
 	}
 	if called {
 		t.Error("made an HTTP request for an invalid username")
+	}
+}
+
+func TestFetchGitHubKeysPublicWrapperRejectsInvalidUsername(t *testing.T) {
+	if _, err := FetchGitHubKeys(context.Background(), "not a valid username"); err == nil {
+		t.Fatal("FetchGitHubKeys accepted an invalid username")
+	}
+}
+
+func TestFetchGitHubKeysRejectsOversizedAndMalformedResponses(t *testing.T) {
+	oversized, _ := stubClient(http.StatusOK, strings.Repeat("x", maxKeysResponse+1))
+	if _, err := fetchGitHubKeys(context.Background(), oversized, "octocat"); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+
+	malformed, _ := stubClient(http.StatusOK, "ssh-ed25519 not-base64\n")
+	if _, err := fetchGitHubKeys(context.Background(), malformed, "octocat"); err == nil || !strings.Contains(err.Error(), "invalid ssh-ed25519") {
+		t.Fatalf("malformed key error = %v", err)
+	}
+}
+
+func TestDefaultGitHubClientHasTimeout(t *testing.T) {
+	if defaultHTTPTimeout <= 0 || defaultHTTPTimeout > 30*time.Second {
+		t.Fatalf("default HTTP timeout = %v, want a bounded positive timeout", defaultHTTPTimeout)
 	}
 }

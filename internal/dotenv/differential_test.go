@@ -1,7 +1,7 @@
 //go:build differential
 
-// This file is compiled only with `-tags differential`, so the default test
-// suite never needs the godotenv dependency. Run it with:
+// This file is compiled only with `-tags differential`. CI runs it explicitly
+// as a separate conformance job. Run it locally with:
 //
 //	go test -tags differential ./internal/dotenv
 //
@@ -92,8 +92,7 @@ func compareWithGodotenv(t *testing.T, input string) {
 		// rejection (conformance doc §3 rule 6 + "Why stricter than every
 		// reference tool").
 		if !isDocumentedStrictRejection(ourErr) {
-			t.Fatalf("undocumented strict rejection\ninput: %q\nour error: %v\ngodotenv accepted: %v",
-				input, ourErr, theirs)
+			t.Fatalf("undocumented strict rejection: EnvGuardian error category %T; input and values omitted", ourErr)
 		}
 		return
 
@@ -104,8 +103,7 @@ func compareWithGodotenv(t *testing.T, input string) {
 		if strings.HasPrefix(input, bomPrefix) {
 			return
 		}
-		t.Fatalf("undocumented leniency: we accept input godotenv rejects\ninput: %q\ngodotenv error: %v\nours: %v",
-			input, theirErr, ours.Keys())
+		t.Fatalf("undocumented leniency: godotenv rejected input EnvGuardian accepted; values omitted")
 		return
 
 	default:
@@ -135,8 +133,7 @@ func compareMaps(t *testing.T, input string, ours *File, theirs map[string]strin
 			if hasBOM {
 				continue
 			}
-			t.Fatalf("undocumented: key %q present for us but not godotenv\ninput: %q\nours: %v\ntheirs: %v",
-				k, input, ourMap, theirs)
+			t.Fatalf("undocumented: key %q present for EnvGuardian but not godotenv; values omitted", k)
 		}
 		if ourVal != theirVal {
 			raw := ours.nodes[ours.idx[k]].raw
@@ -148,8 +145,7 @@ func compareMaps(t *testing.T, input string, ours *File, theirs map[string]strin
 				// Case L: godotenv replaces invalid UTF-8 with U+FFFD; we
 				// preserve the raw bytes.
 			default:
-				t.Fatalf("undocumented value divergence for key %q\ninput: %q\nours:  %q\ntheirs: %q\nraw:   %q",
-					k, input, ourVal, theirVal, raw)
+				t.Fatalf("undocumented value divergence for key %q; values omitted", k)
 			}
 		}
 	}
@@ -163,8 +159,7 @@ func compareMaps(t *testing.T, input string, ours *File, theirs map[string]strin
 		if hasBOM && strings.HasPrefix(k, bomPrefix) {
 			continue
 		}
-		t.Fatalf("undocumented: key %q present for godotenv but not us\ninput: %q\nours: %v\ntheirs: %v",
-			k, input, ourMap, theirs)
+		t.Fatalf("undocumented: key %q present for godotenv but not EnvGuardian; values omitted", k)
 	}
 }
 

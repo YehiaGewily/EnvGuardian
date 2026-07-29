@@ -1,26 +1,49 @@
 # Contributing to EnvGuardian
 
-Thanks for your interest. EnvGuardian has a deliberately small scope (see the
-non-goals table in the [README](README.md)); the fastest way to get a change
-merged is to fit within it.
+EnvGuardian has a deliberately small scope (see the non-goals in the
+[README](README.md)). The rules in this file are the permanent engineering
+rules; they do not depend on a local or tool-specific instruction file.
 
 ## Ground rules
 
-These come from [CLAUDE.md](CLAUDE.md) and are non-negotiable:
-
 1. **Never implement cryptographic primitives.** Use age's public API only. A
-   change that touches a curve, cipher, or KDF directly should stop and open an
-   issue first.
-2. **Never write ciphertext unless the decrypted plaintext actually changed.**
-   age is randomized; unconditional re-encryption creates churn and merge
-   conflicts. All writes route through the decrypt-compare loop in
-   `internal/crypt`.
-3. **All file writes are atomic** (temp file + fsync + rename, via
-   `internal/atomic`). Plaintext files get mode `0600`.
-4. **Never print a secret value** to stdout, stderr, or logs. Diffs and errors
-   report key names only.
-5. **Never commit a derivative of a secret value** — no hash, HMAC, or length,
-   anywhere. Only derivatives of public data (recipient keys) may be committed.
+   change that directly implements or modifies a curve, cipher, or KDF must stop
+   for design review.
+2. **Confine every automatic plaintext write to the repository, excluding
+   `.git/`.** Resolve and validate repository-controlled paths before reading or
+   writing them. Symlinks and platform-specific path forms are part of that
+   validation.
+3. **Never write replacement ciphertext without decrypting and comparing the
+   existing ciphertext first.** A recipient fingerprint may decide whether a
+   write is needed; it may never decide what plaintext is written. If existing
+   ciphertext cannot be verified, fail closed.
+4. **Bind lock state to one ciphertext's exact bytes.** A ciphertext digest is
+   public-data metadata and may be committed. Lock state is not a global proxy
+   for multiple ciphertexts.
+5. **Make file writes atomic.** Use a temporary file in the destination
+   directory, fsync, and rename. Plaintext destinations use mode `0600`.
+6. **Never expose a plaintext derivative.** Do not commit, log, or print secret
+   values, hashes, HMACs, lengths, prefixes, or other value-derived metadata.
+   Ciphertext digests and recipient-key fingerprints are allowed because their
+   inputs are already public.
+7. **Treat age as confidentiality, not sender authentication.** Decrypting
+   successfully does not establish who created a ciphertext. Do not describe it
+   as provenance or authenticity. Only a separately verified detached
+   signature may establish artifact authorship.
+8. **Keep documentation true.** A false security, release, installation, or
+   feature claim is a release-blocking bug.
+9. **Keep the public API surface at zero.** Project packages live under
+   `internal/`.
+10. **Verify the snapshot that will be committed.** Pre-commit checks read
+    config, recipients, lock, and ciphertext from Git's index. Git subprocess
+    errors fail closed; working-tree state must not substitute for staged
+    security metadata.
+
+For `v0.1.1`, changes must preserve the single configured plaintext/ciphertext
+pair. Multi-file support returns in `v0.2.0` on top of the transactional
+planner. The planner API is intentionally slice-shaped, but do not enable more
+than one configured pair until crash recovery and multi-file failure testing
+are designed for that release.
 
 ## Development
 
@@ -29,33 +52,37 @@ make build      # compile with version metadata
 make test       # go test -race ./...
 make lint       # golangci-lint
 make fuzz       # 60s of parser fuzzing
-make test-diff  # differential test vs joho/godotenv (needs the dependency)
+make test-diff  # build-tagged differential test vs joho/godotenv
 ```
 
 - Go 1.24+.
-- Small packages, explicit errors wrapped with `%w`, no global state, no
-  `init()` side effects. Errors say what was tried and what to do next.
-- Everything lives under `internal/`; the public API surface is intentionally
-  zero.
+- Prefer small packages, explicit errors wrapped with `%w`, no global state,
+  and no `init()` side effects.
+- Errors must say what was attempted and what the user can do next without
+  including secret values or derivatives.
 
 ## Tests
 
-- Table-driven tests; native Go fuzzing on the parser; golden files for CLI
-  output; integration tests build a real git repo in `t.TempDir()`.
-- New parser behavior must be reflected in
-  [docs/dotenv-conformance.md](docs/dotenv-conformance.md) and its differential
-  test.
-- Target: the `dotenv` and `crypt` packages stay above 85% coverage.
+- Use table-driven tests and native Go fuzzing for the parser.
+- CLI output should use golden files; integration tests should create real git
+  repositories under `t.TempDir()`.
+- New parser behavior must update
+  [docs/dotenv-conformance.md](docs/dotenv-conformance.md) and relevant tests.
+- Coverage above 85% for `dotenv` and `crypt` is a release target, not a claim
+  about the current prototype.
 
 ## Pull requests
 
-- Keep changes focused; one concern per PR.
-- Run `make test lint` before pushing; CI runs the matrix over
-  linux/macOS/windows.
+- Keep changes focused.
+- Run `make test lint` before pushing; CI tests Go 1.24 and 1.25 on Linux,
+  macOS, and Windows.
 - Update `CHANGELOG.md` under `## [Unreleased]`.
-- By contributing you agree your work is licensed under the project's
+- Sign commits. Protected branches require signed commits and pull-request
+  review.
+- By contributing, you agree that your work is licensed under the project's
   [MIT license](LICENSE).
 
 ## Reporting security issues
 
-Do **not** open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
+Do not open a public issue for a vulnerability. Follow
+[SECURITY.md](SECURITY.md).

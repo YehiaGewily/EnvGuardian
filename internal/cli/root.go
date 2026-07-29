@@ -12,16 +12,19 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/YehiaGewily/envguardian/internal/authenticity"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
+	"github.com/YehiaGewily/envguardian/internal/dotenv"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
-// Exit codes (see docs/PLAN.md §6).
+// Exit codes are part of the current CLI contract.
 const (
 	exitOK        = 0
 	exitOutOfSync = 1
 	exitIdentity  = 2
 	exitConfig    = 3
+	exitSignature = 4
 )
 
 // BuildInfo carries version metadata injected at build time.
@@ -36,7 +39,6 @@ type globalFlags struct {
 	identity string
 	config   string
 	json     bool
-	noColor  bool
 	verbose  bool
 }
 
@@ -68,14 +70,22 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 			"have working local configuration. Access is a reviewable recipients file.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if flags.json && cmd.Name() != "check" && cmd.Name() != "list-recipients" {
+				return withExit(exitConfig, fmt.Errorf("--json is not supported by %q; use it only with check or list-recipients", cmd.Name()))
+			}
+			if flags.verbose {
+				fmt.Fprintf(cmd.ErrOrStderr(), "envguardian: verbose: command=%s\n", cmd.Name())
+			}
+			return nil
+		},
 	}
 
 	pf := root.PersistentFlags()
 	pf.StringVar(&flags.identity, "identity", "", "path to the age/SSH identity to decrypt with")
 	pf.StringVar(&flags.config, "config", "", "path to the EnvGuardian config file")
 	pf.BoolVar(&flags.json, "json", false, "emit machine-readable JSON output")
-	pf.BoolVar(&flags.noColor, "no-color", false, "disable colored output")
-	pf.BoolVarP(&flags.verbose, "verbose", "v", false, "verbose output")
+	pf.BoolVarP(&flags.verbose, "verbose", "v", false, "report command progress without secret values")
 
 	root.AddCommand(
 		newVersionCmd(info),
@@ -85,9 +95,12 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newAddRecipientCmd(flags),
 		newListRecipientsCmd(flags),
 		newCheckCmd(flags),
+		newCheckLocalCmd(flags),
 		newInstallHooksCmd(flags),
+		newHookAutoDecryptCmd(flags),
 		newHookPreCommitCmd(flags),
 		newDiffCmd(flags),
+		newDiffDriverCmd(flags),
 	)
 
 	return root
@@ -105,12 +118,27 @@ func Execute(info BuildInfo) int {
 // exitCodeFor maps an error to an exit code. Identity/decrypt failures take
 // precedence (2), then any explicit code, else a generic failure (1).
 func exitCodeFor(err error) int {
+	var signatureErr *authenticity.SignatureError
+	if errors.As(err, &signatureErr) {
+		return exitSignature
+	}
+	var decryptErr *crypt.DecryptError
+	var identityRequired *crypt.IdentityRequiredError
+	if errors.As(err, &decryptErr) || errors.As(err, &identityRequired) {
+		return exitIdentity
+	}
 	if errors.Is(err, keys.ErrPassphraseRequired) || errors.Is(err, crypt.ErrNotARecipient) {
 		return exitIdentity
 	}
 	var nie *keys.NoIdentityError
 	if errors.As(err, &nie) {
 		return exitIdentity
+	}
+	var invalidDecrypted *crypt.InvalidDotenvError
+	var invalidPlaintext *crypt.InvalidPlaintextError
+	var parseErr *dotenv.ParseError
+	if errors.As(err, &invalidDecrypted) || errors.As(err, &invalidPlaintext) || errors.As(err, &parseErr) {
+		return exitConfig
 	}
 	var ee *exitError
 	if errors.As(err, &ee) {

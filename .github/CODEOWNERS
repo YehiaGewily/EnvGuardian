@@ -1,0 +1,12 @@
+# Security-sensitive repository state and implementation.
+# Keep these rules in sync with docs/PLAN.md.
+/.github/CODEOWNERS @YehiaGewily
+/.envguardian/** @YehiaGewily
+*.age @YehiaGewily
+*.age.sig @YehiaGewily
+/.gitattributes @YehiaGewily
+/.github/workflows/** @YehiaGewily
+/internal/crypt/** @YehiaGewily
+/internal/authenticity/** @YehiaGewily
+/internal/keys/** @YehiaGewily
+/internal/cli/hooks.go @YehiaGewily

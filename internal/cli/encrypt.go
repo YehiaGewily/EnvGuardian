@@ -3,13 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 
-	"filippo.io/age"
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/crypt"
-	"github.com/YehiaGewily/envguardian/internal/dotenv"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
@@ -30,7 +27,10 @@ func newEncryptCmd(flags *globalFlags) *cobra.Command {
 }
 
 func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
-	p := rootPaths(flags)
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig(p)
 	if err != nil {
 		return err
@@ -59,36 +59,46 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		return withExit(exitConfig, err)
 	}
 
-	// Identity is best-effort: first-time and recipient-change encrypts don't
-	// need it; only the decrypt-compare path does.
-	var identities []age.Identity
-	var label string
-	if id, rerr := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter()); rerr == nil {
-		identities, label = id.Identities, id.Label
+	// Stage D requires an SSH identity for every new or replacement signature.
+	// Existing ciphertext also uses its age-compatible form for decrypt-compare.
+	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+	if err != nil {
+		return err
 	}
 
 	out := cmd.OutOrStdout()
 	ccfg := crypt.Config{
-		Identities:  identities,
-		Label:       label,
+		Identities:  id.Identities,
+		Label:       id.Label,
 		LockPath:    p.Lock,
 		Fingerprint: rf.Fingerprint(),
 		Force:       force,
 		Logf:        func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
 	}
 
+	plans := make([]*crypt.SealPlan, 0, len(cfg.Files))
 	for _, fp := range cfg.Files {
-		plain := filepath.Join(p.Root, fp.Plaintext)
-		cipher := filepath.Join(p.Root, fp.Ciphertext)
-		changed, err := crypt.Seal(ccfg, recipients, plain, cipher)
+		plan, err := crypt.PlanSeal(ccfg, recipients, fp.PlaintextPath, fp.CiphertextPath, fp.Ciphertext)
 		if err != nil {
-			var pe *dotenv.ParseError
-			if errors.As(err, &pe) {
-				return withExit(exitConfig, err)
-			}
 			return err
 		}
-		if changed {
+		plans = append(plans, plan)
+	}
+	signaturePlans := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	for i, fp := range cfg.Files {
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		if signErr != nil {
+			return signErr
+		}
+		signaturePlans = append(signaturePlans, signaturePlan)
+	}
+	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
+		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: signaturePlans,
+	}); err != nil {
+		return err
+	}
+	for i, fp := range cfg.Files {
+		if plans[i].Changed {
 			fmt.Fprintf(out, "encrypted %s → %s\n", fp.Plaintext, fp.Ciphertext)
 		} else {
 			fmt.Fprintf(out, "%s → %s unchanged\n", fp.Plaintext, fp.Ciphertext)

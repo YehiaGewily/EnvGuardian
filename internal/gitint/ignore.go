@@ -8,6 +8,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/YehiaGewily/envguardian/internal/atomic"
 )
 
 // NotIgnoredError reports plaintext files that git is not ignoring, so encrypt
@@ -166,7 +168,7 @@ func AppendLine(path, entry string) (bool, error) {
 		b.WriteByte('\n')
 	}
 	fmt.Fprintf(&b, "%s\n", entry)
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil { //nolint:gosec // dotfile is not a secret
+	if err := atomic.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, nil

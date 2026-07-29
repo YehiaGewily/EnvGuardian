@@ -1,7 +1,6 @@
 // Package crypt is a thin wrapper over filippo.io/age. It owns the
-// decrypt-compare-then-maybe-write loop that keeps ciphertext idempotent: no
-// bytes are written unless the recipient set or the decrypted plaintext actually
-// changed (CLAUDE.md rule 2).
+// decrypt-compare-plan-then-commit loop that keeps ciphertext idempotent and
+// prevents recipient changes from selecting stale local plaintext.
 package crypt
 
 import (
@@ -22,6 +21,41 @@ import (
 // the file because it is not one of its recipients — the case a new teammate
 // hits before someone adds them. It is reachable via errors.Is.
 var ErrNotARecipient = errors.New("your key is not a recipient of this file")
+
+// InvalidDotenvError identifies an invalid decrypted payload. Its rendered
+// message deliberately omits the stored line and parser details because both
+// are plaintext-derived and malformed trailing text can contain a secret.
+type InvalidDotenvError struct {
+	Line int
+}
+
+func (e *InvalidDotenvError) Error() string {
+	return "decrypted payload is not valid dotenv; refusing to write plaintext"
+}
+
+// InvalidPlaintextError retains the parser error for programmatic inspection
+// while rendering no plaintext-derived line number or malformed fragment.
+type InvalidPlaintextError struct {
+	Path string
+	Err  error
+}
+
+func (e *InvalidPlaintextError) Error() string {
+	return fmt.Sprintf("plaintext %s is not valid dotenv; refusing to encrypt", e.Path)
+}
+
+func (e *InvalidPlaintextError) Unwrap() error { return e.Err }
+
+// DecryptError marks failures in the age decryption operation so the CLI can
+// apply the documented identity/decrypt exit code without inspecting strings.
+type DecryptError struct {
+	Err error
+}
+
+func (e *DecryptError) Error() string {
+	return "decrypt ciphertext: ciphertext is malformed, the identity does not match, or authentication failed"
+}
+func (e *DecryptError) Unwrap() error { return e.Err }
 
 // Config carries the shared inputs for Seal and Open.
 type Config struct {
@@ -46,86 +80,6 @@ func (c Config) logf(format string, args ...any) {
 	}
 }
 
-// Seal encrypts plaintextPath to recipients and writes ciphertextPath, but only
-// when something actually changed. It returns whether it wrote.
-//
-// Policy when the existing ciphertext can't be decrypted (no identity, or ours
-// isn't a recipient): error by default so we neither churn nor ship stale;
-// --force re-encrypts blind, logging loudly.
-func Seal(cfg Config, recipients []age.Recipient, plaintextPath, ciphertextPath string) (bool, error) {
-	plaintext, err := os.ReadFile(plaintextPath) //nolint:gosec // G304: user-configured plaintext path
-	if err != nil {
-		return false, fmt.Errorf("read plaintext %s: %w", plaintextPath, err)
-	}
-	if _, err := dotenv.Parse(bytes.NewReader(plaintext)); err != nil {
-		return false, fmt.Errorf("plaintext %s is not a valid .env: %w", plaintextPath, err)
-	}
-
-	lockFP, _ := readLockFingerprint(cfg.LockPath)
-	recipientsChanged := lockFP != cfg.Fingerprint // missing/unparseable/mismatched → true
-
-	_, statErr := os.Stat(ciphertextPath)
-	cipherExists := statErr == nil
-
-	// No ciphertext yet, or the recipient set changed (or the lock is unknown):
-	// re-encrypt unconditionally and skip the decrypt-compare entirely.
-	if !cipherExists || recipientsChanged {
-		return cfg.writeSealed(plaintext, recipients, ciphertextPath)
-	}
-
-	// Recipients unchanged → we must decrypt to compare content.
-	if len(cfg.Identities) == 0 {
-		if cfg.Force {
-			cfg.logf("WARNING: --force: re-encrypting %s without verifying it (no identity to decrypt-compare); writing blind", ciphertextPath)
-			return cfg.writeSealed(plaintext, recipients, ciphertextPath)
-		}
-		return false, fmt.Errorf(
-			"cannot verify %s is current: no available identity can decrypt it, so a rewrite can't be checked for idempotency — "+
-				"supply an identity that is a recipient, or pass --force to re-encrypt blindly", ciphertextPath)
-	}
-
-	existing, err := os.ReadFile(ciphertextPath) //nolint:gosec // G304: user-configured ciphertext path
-	if err != nil {
-		return false, fmt.Errorf("read ciphertext %s: %w", ciphertextPath, err)
-	}
-
-	// Belt-and-braces: the header stanza count must match the recipient count.
-	// Not a substitute for the fingerprint (3 recipients where 1 is wrong still
-	// counts as 3), just a cheap free check.
-	if n, err := stanzaCount(existing); err == nil && n != len(recipients) {
-		return cfg.writeSealed(plaintext, recipients, ciphertextPath)
-	}
-
-	decrypted, err := decryptBytes(existing, cfg.Identities)
-	if err != nil {
-		if cfg.Force {
-			cfg.logf("WARNING: --force: re-encrypting %s without verifying it (decrypt failed: %v); writing blind", ciphertextPath, err)
-			return cfg.writeSealed(plaintext, recipients, ciphertextPath)
-		}
-		return false, fmt.Errorf("cannot decrypt existing %s to compare (pass --force to re-encrypt blindly): %w", ciphertextPath, err)
-	}
-
-	if sameContent(decrypted, plaintext) {
-		return false, nil // idempotent: nothing changed, write nothing
-	}
-	return cfg.writeSealed(plaintext, recipients, ciphertextPath)
-}
-
-// writeSealed encrypts and writes both the ciphertext and the lock file.
-func (c Config) writeSealed(plaintext []byte, recipients []age.Recipient, ciphertextPath string) (bool, error) {
-	ct, err := encryptBytes(plaintext, recipients)
-	if err != nil {
-		return false, err
-	}
-	if err := atomic.WriteFile(ciphertextPath, ct, 0o644); err != nil {
-		return false, err
-	}
-	if err := writeLock(c.LockPath, c.Fingerprint); err != nil {
-		return false, fmt.Errorf("update lock file: %w", err)
-	}
-	return true, nil
-}
-
 // Open decrypts ciphertextPath to plaintextPath (mode 0600). When the identity
 // is not a recipient it returns ErrNotARecipient with the fix.
 func Open(cfg Config, ciphertextPath, plaintextPath string) error {
@@ -133,19 +87,44 @@ func Open(cfg Config, ciphertextPath, plaintextPath string) error {
 	if err != nil {
 		return fmt.Errorf("read ciphertext %s: %w", ciphertextPath, err)
 	}
-	plaintext, err := decryptBytes(ct, cfg.Identities)
+	return OpenBytes(cfg, ct, plaintextPath)
+}
+
+// OpenBytes decrypts committed ciphertext bytes, validates the complete
+// plaintext as dotenv, and only then atomically writes it with mode 0600.
+func OpenBytes(cfg Config, ciphertext []byte, plaintextPath string) error {
+	plaintext, _, err := DecryptBytesToDotenv(cfg.Identities, ciphertext)
 	if err != nil {
 		var nim *age.NoIdentityMatchError
 		if errors.As(err, &nim) {
 			return fmt.Errorf("%w\n  the identity used was: %s\n  fix: ask a teammate to run `envguardian add-recipient --github <username>` and commit the result",
 				ErrNotARecipient, cfg.Label)
 		}
-		return fmt.Errorf("decrypt %s: %w", ciphertextPath, err)
+		return &DecryptError{Err: err}
 	}
 	if err := atomic.WriteFile(plaintextPath, plaintext, 0o600); err != nil {
 		return err
 	}
 	return nil
+}
+
+// DecryptBytesToDotenv decrypts and validates ciphertext entirely in memory.
+// The plaintext return value is sensitive and must never be logged or persisted
+// except through an approved 0600 plaintext destination.
+func DecryptBytesToDotenv(identities []age.Identity, ciphertext []byte) ([]byte, *dotenv.File, error) {
+	plaintext, err := decryptBytes(ciphertext, identities)
+	if err != nil {
+		return nil, nil, &DecryptError{Err: err}
+	}
+	f, err := dotenv.Parse(bytes.NewReader(plaintext))
+	if err != nil {
+		var parseErr *dotenv.ParseError
+		if errors.As(err, &parseErr) {
+			return nil, nil, &InvalidDotenvError{Line: parseErr.Line}
+		}
+		return nil, nil, &InvalidDotenvError{}
+	}
+	return plaintext, f, nil
 }
 
 func encryptBytes(plaintext []byte, recipients []age.Recipient) ([]byte, error) {
@@ -177,25 +156,6 @@ func decryptBytes(raw []byte, identities []age.Identity) ([]byte, error) {
 		return nil, err
 	}
 	return io.ReadAll(r)
-}
-
-// stanzaCount returns the number of recipient stanzas in the age header.
-func stanzaCount(raw []byte) (int, error) {
-	var src io.Reader = bytes.NewReader(raw)
-	if isArmored(raw) {
-		src = armor.NewReader(src)
-	}
-	hdr, err := age.ExtractHeader(src)
-	if err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, line := range bytes.Split(hdr, []byte("\n")) {
-		if bytes.HasPrefix(line, []byte("-> ")) {
-			n++
-		}
-	}
-	return n, nil
 }
 
 // sameContent reports whether two .env blobs have identical key/value sets. A

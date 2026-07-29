@@ -34,8 +34,7 @@ func FuzzParse(f *testing.F) {
 		// Anything we wrote must parse back.
 		f2, err := Parse(bytes.NewReader(out1.Bytes()))
 		if err != nil {
-			t.Fatalf("re-parse of serialized output failed: %v\ninput:  %q\noutput: %q",
-				err, input, out1.String())
+			t.Fatalf("re-parse of serialized output failed: %T; input and output omitted", err)
 		}
 
 		// The serializer must be a fixpoint.
@@ -44,19 +43,19 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("second WriteTo failed: %v", err)
 		}
 		if !bytes.Equal(out1.Bytes(), out2.Bytes()) {
-			t.Fatalf("serialization not stable\nout1: %q\nout2: %q", out1.String(), out2.String())
+			t.Fatal("serialization not stable; outputs omitted")
 		}
 
 		// Keys and values must be preserved across the cycle.
 		k1, k2 := f1.Keys(), f2.Keys()
 		if strings.Join(k1, "\x00") != strings.Join(k2, "\x00") {
-			t.Fatalf("keys diverged: %v vs %v (input %q)", k1, k2, input)
+			t.Fatalf("keys diverged: %v vs %v; input omitted", k1, k2)
 		}
 		for _, k := range k1 {
 			v1, _ := f1.Get(k)
 			v2, _ := f2.Get(k)
 			if v1 != v2 {
-				t.Fatalf("value for %q diverged: %q vs %q (input %q)", k, v1, v2, input)
+				t.Fatalf("value for %q diverged; values and input omitted", k)
 			}
 		}
 	})

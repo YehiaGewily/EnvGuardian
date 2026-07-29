@@ -1,4 +1,4 @@
-// Package gitint handles git integration: the post-merge, post-checkout, and
-// pre-commit hooks, the .gitignore guard, and the diff/merge drivers for
-// encrypted files.
+// Package gitint implements the repository's .gitignore checks and the shared
+// helper used to append managed dotfile entries. Hook installation and diff
+// command wiring currently live in internal/cli. No merge driver exists yet.
 package gitint

@@ -3,6 +3,8 @@ package keys
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -83,14 +85,14 @@ func TestValidate(t *testing.T) {
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: k1}, {Name: "bob", Key: k1},
 			}},
-			wantSub: "share the same key",
+			wantSub: "duplicates a key",
 		},
 		{
 			name: "duplicate key with different comment",
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: k2}, {Name: "bob", Key: k2 + " alice@laptop"},
 			}},
-			wantSub: "share the same key",
+			wantSub: "duplicates a key",
 		},
 		{
 			name: "no name",
@@ -111,7 +113,7 @@ func TestValidate(t *testing.T) {
 			file: RecipientsFile{Recipients: []Recipient{
 				{Name: "alice", Key: "not-a-key"},
 			}},
-			wantSub: "invalid key",
+			wantSub: "is invalid",
 		},
 	}
 
@@ -164,9 +166,129 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMultiKeySchemaFlattensAndFingerprintsEveryKey(t *testing.T) {
+	legacy := ageKey(t)
+	laptop := sshKey(t)
+	workstation := sshKey(t)
+	file := &RecipientsFile{Recipients: []Recipient{
+		{Name: "legacy", Key: legacy},
+		{Name: "alice", Keys: []string{laptop, workstation}},
+	}}
+	if err := file.Validate(); err != nil {
+		t.Fatalf("multi-key schema rejected: %v", err)
+	}
+	recipients, err := file.AgeRecipients()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recipients) != 3 {
+		t.Fatalf("flattened recipients = %d, want 3", len(recipients))
+	}
+	before := file.Fingerprint()
+	file.Recipients[1].Keys[1] = sshKey(t)
+	if after := file.Fingerprint(); after == before {
+		t.Fatal("changing a secondary key did not change the recipient fingerprint")
+	}
+}
+
+func TestMultiKeySchemaRejectsDuplicatesWithinOnePerson(t *testing.T) {
+	key := sshKey(t)
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Keys: []string{key, key + " laptop"}}}}
+	if err := file.Validate(); err == nil || !strings.Contains(err.Error(), "duplicates a key") {
+		t.Fatalf("error = %v, want duplicate-key rejection", err)
+	}
+}
+
+func TestRecipientSchemaReadsLegacyKeyAndWritesKeysArray(t *testing.T) {
+	legacyKey := ageKey(t)
+	legacyTOML := "[[recipient]]\nname = \"legacy\"\nkey = \"" + legacyKey + "\"\nsource = \"manual\"\nadded_at = \"2026-07-24\"\nadded_by = \"alice\"\n"
+	legacy, err := ParseRecipients([]byte(legacyTOML))
+	if err != nil {
+		t.Fatalf("legacy key = rejected: %v", err)
+	}
+	if len(legacy.Recipients[0].PublicKeys()) != 1 {
+		t.Fatalf("legacy key did not flatten: %+v", legacy.Recipients[0])
+	}
+
+	modern := &RecipientsFile{Recipients: []Recipient{{
+		Name: "alice", Keys: []string{ageKey(t)}, Source: "manual", AddedAt: "2026-07-24", AddedBy: "alice",
+	}}}
+	encoded, err := modern.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "keys = [") || strings.Contains(string(encoded), "\nkey =") {
+		t.Fatalf("modern schema encoding =\n%s", encoded)
+	}
+	if _, err := ParseRecipients(encoded); err != nil {
+		t.Fatalf("modern schema did not round-trip: %v", err)
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	_, err := LoadRecipients(filepath.Join(t.TempDir(), "nope.toml"))
 	if err == nil || !strings.Contains(err.Error(), "init") {
 		t.Errorf("missing file error = %v, want a hint to run init", err)
+	}
+}
+
+func TestRecipientNameForSigningKey(t *testing.T) {
+	sshRecipient := sshKey(t)
+	pub, _, _, _, err := gossh.ParseAuthorizedKey([]byte(sshRecipient))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := &RecipientsFile{Recipients: []Recipient{
+		{Name: "age-only", Key: ageKey(t)},
+		{Name: "alice", Key: sshRecipient},
+	}}
+	if name, ok := file.RecipientNameForSigningKey(gossh.FingerprintSHA256(pub)); !ok || name != "alice" {
+		t.Fatalf("SHA256 fingerprint matched %q, %v; want alice, true", name, ok)
+	}
+	if _, ok := file.RecipientNameForSigningKey("SHA256:not-a-recipient"); ok {
+		t.Fatal("non-recipient signing fingerprint matched")
+	}
+}
+
+func TestRecipientsParsingAndPersistenceFailures(t *testing.T) {
+	if _, err := ParseRecipients([]byte("[[recipient]\n")); err == nil {
+		t.Fatal("ParseRecipients accepted malformed TOML")
+	}
+	if _, err := ParseRecipients([]byte("unknown = true\n")); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown-field error = %v", err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	if _, err := LoadRecipients(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing recipients error = %v", err)
+	}
+
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Key: ageKey(t)}}}
+	path := filepath.Join(t.TempDir(), "recipients.toml")
+	if err := file.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadRecipients(path)
+	if err != nil {
+		t.Fatalf("LoadRecipients: %v", err)
+	}
+	if len(loaded.Recipients) != 1 || loaded.Recipients[0].Name != "alice" {
+		t.Fatal("recipients persistence round trip changed the public recipient entry")
+	}
+}
+
+func TestRecipientNameForPublicKeyIgnoresSSHComment(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPublic, err := gossh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(sshPublic)))
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Key: base + " laptop"}}}
+	if name, ok := file.RecipientNameForPublicKey(base + " workstation"); !ok || name != "alice" {
+		t.Fatalf("RecipientNameForPublicKey = %q, %v", name, ok)
 	}
 }

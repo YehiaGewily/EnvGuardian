@@ -1,17 +1,16 @@
-# `.env` conformance: how four parsers disagree, and what EnvGuardian does
+# `.env` behavior and godotenv differential conformance
 
-There is no `.env` standard. The four most-used implementations disagree on
+There is no `.env` standard. Four commonly used implementations disagree on
 quoting, interpolation, comments, and whitespace in ways that silently change
 secret values. This document records those disagreements with concrete
 inputs/outputs and states the behaviour EnvGuardian adopts for each, with the
 reasoning.
 
-> **Scope & versions.** Behaviour was assessed against **godotenv v1.5.x**,
-> **python-dotenv 1.0.x**, **dotenv (npm) v16.x**, and **Docker Engine/CLI
-> 24–27**. All four change behaviour across versions; rows marked `*` are
-> especially version- or encoding-sensitive. EnvGuardian's differential test
-> suite (see [PLAN §8](PLAN.md)) pins the exact behaviour of the reference
-> tools in CI so this table can't rot silently.
+> **Conformance boundary.** EnvGuardian makes an automated compatibility claim
+> only against pinned **godotenv v1.5.1**. CI runs that differential suite
+> explicitly with the `differential` build tag. The python-dotenv, Node dotenv,
+> and Docker columns below are non-authoritative background notes from manual
+> investigation—not tested compatibility claims and not release evidence.
 
 **Legend for output cells:** `↵` = a real newline inside the value ·
 `␣` = a significant space · `(empty)` = set to `""` · `(unset)` = not defined ·
@@ -39,7 +38,8 @@ undefined interpolation are errors, not silent coercions) because it guards a
 *committed* secrets file where a silently-wrong value is worse than a loud
 failure. It is also the only one of the five that is a **round-tripping**
 parser — it preserves comments, blank lines, key order, quote style, and line
-endings — which the idempotency rule ([CLAUDE.md rule 2](../CLAUDE.md)) requires.
+endings — which the idempotency rule in
+[CONTRIBUTING.md](../CONTRIBUTING.md) requires.
 
 ---
 
@@ -59,7 +59,7 @@ endings — which the idempotency rule ([CLAUDE.md rule 2](../CLAUDE.md)) requir
 | Bare key `K` (no `=`) | (error) | (unset) | ignored | (host env) | **(error)** |
 | Duplicate key | last wins | last wins | last wins | last wins | **(error)** |
 | CRLF tolerated | ✅ | ✅ | ✅ | ✅ | ✅ (EOL preserved) |
-| Leading BOM handled | ❌* | varies* | ❌* | ❌* | ✅ (stripped) |
+| Leading BOM handled | ❌* | varies* | ❌* | ❌* | ✅ (removed from key semantics; preserved on write) |
 | Round-trips comments/order/format | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 The rest of the document gives the example input behind each row.
@@ -139,7 +139,7 @@ Node's core `dotenv` performs **no** interpolation — you must add
 > values, referencing keys already defined **earlier in the same file**;
 > suppress it in single quotes; allow `\$` for a literal `$`. An **undefined**
 > reference is an **error**, not an empty string. **Why:** interpolation is
-> required by [CLAUDE.md](../CLAUDE.md) and expected by developers, but silently
+> part of EnvGuardian's documented grammar and expected by developers, but silently
 > expanding `${TYPO}` to `""` in a secrets file is exactly the kind of quiet
 > breakage this tool exists to prevent — so we fail loudly and name the key.
 
@@ -264,7 +264,7 @@ D=2
 > **Why:** in a reviewed, committed secrets file a duplicate is a merge mistake
 > or a copy-paste bug; "last wins" would let a stale value silently shadow the
 > intended one. Fail loudly — this is cheap insurance against a whole class of
-> bad merges (and dovetails with the M3 merge driver).
+> bad merges. A merge driver is planned for `v0.2.0`; it is not implemented.
 
 ### J. CRLF line endings
 
@@ -295,9 +295,11 @@ A BOM in a `.env` is almost always an accidental artifact of a Windows editor
 saving as "UTF-8 with BOM". Most parsers fold it into the first key name, so
 `X` silently becomes undefined.
 
-> **EnvGuardian:** strip a single leading UTF-8 BOM on read; never write one.
-> **Why:** it's virtually always accidental, and a corrupted first key is a
-> nasty, hard-to-see bug. A one-time diff to drop the BOM is acceptable.
+> **EnvGuardian:** remove a single leading UTF-8 BOM from the first key's parse
+> semantics, record that it was present, and preserve it when writing the file.
+> An unmodified parse/write round trip is byte-identical. **Why:** the first key
+> must not be corrupted, while the source-preserving writer must not create an
+> unrelated formatting diff.
 
 ### L. Invalid UTF-8 bytes in a value
 
@@ -333,12 +335,12 @@ mutating the value.
    `\$` escapes a literal `$`; an **undefined** reference is an error.
 6. **Strict rejections (loud, with line numbers):** duplicate key; bare key
    without `=`; undefined interpolation; unterminated quote.
-7. **Tolerated & normalised:** CRLF and a leading BOM on read.
+7. **Tolerated:** CRLF and a leading BOM. Their syntax is normalized for parsing
+   while the source representation is preserved on write.
 8. **Round-trip fidelity (unique to EnvGuardian):** the writer preserves
    comments, blank lines, key order, original quote style, `export` prefixes,
-   and the file's dominant line ending. Unchanged keys are re-emitted
-   byte-for-byte; only changed/added/removed keys touch the file. This is what
-   makes `encrypt` idempotent.
+   the leading BOM, and the file's dominant line ending. Unmodified nodes are
+   re-emitted byte-for-byte; changed and added entries are rendered as needed.
 
 ### Why stricter than every reference tool
 
@@ -350,7 +352,7 @@ hence errors for duplicates, bare keys, and undefined interpolation. And because
 the ciphertext must not churn, the parser must be a faithful round-tripper,
 which none of the four references attempt.
 
-> These behaviours are enforced by the differential tests in
-> [PLAN §8](PLAN.md): the same fixtures are run through godotenv, python-dotenv,
-> Node dotenv, and Docker, and the divergences above are asserted so this
-> document stays honest.
+> Run `go test -tags differential -run TestDifferentialGodotenv
+> ./internal/dotenv` to execute the pinned godotenv comparison locally. The CI
+> workflow runs the same command as a required, explicit job. EnvGuardian makes
+> no automated conformance claim for Python, Node, or Docker.

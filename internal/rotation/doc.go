@@ -1,4 +1,4 @@
-// Package rotation manages the rotation ledger: the pending-rotation entries
-// opened when a recipient is revoked and closed once the underlying credential
-// has been reissued at its source system.
+// Package rotation is reserved for the v0.2 rotation ledger. Recipient
+// revocation, pending-rotation creation, and rotation completion commands are
+// not implemented yet.
 package rotation

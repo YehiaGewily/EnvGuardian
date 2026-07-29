@@ -52,23 +52,5 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew tap (cask). Requires the tap repo YehiaGewily/homebrew-tap to exist
-# and a token with write access to it (via GITHUB_TOKEN or `brews`/`homebrew`
-# token) at release time.
-homebrew_casks:
-  - name: envguardian
-    repository:
-      owner: YehiaGewily
-      name: homebrew-tap
-      # A PAT with write access to the tap repo (the default GITHUB_TOKEN can't
-      # push to another repo). See docs/RELEASING.md.
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: https://github.com/YehiaGewily/envguardian
-    description: Commit your team's .env to git, encrypted.
-    # macOS gatekeeper quarantines unsigned binaries; strip the attribute.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/envguardian"]
-          end
+# Homebrew publishing is intentionally disabled until Stage G creates and
+# verifies a real tap. See docs/RELEASING.md.

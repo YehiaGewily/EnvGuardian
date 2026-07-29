@@ -35,15 +35,16 @@ func WriteFile(path string, data []byte, perm os.FileMode) (err error) {
 	if _, err = tmp.Write(data); err != nil {
 		return fmt.Errorf("atomic write %s: write temp file: %w", path, err)
 	}
+	// CreateTemp makes the file 0600. Apply the final mode before syncing so
+	// both content and metadata are durable when the file is renamed.
+	if err = os.Chmod(tmpName, perm); err != nil {
+		return fmt.Errorf("atomic write %s: chmod temp file: %w", path, err)
+	}
 	if err = tmp.Sync(); err != nil {
 		return fmt.Errorf("atomic write %s: fsync temp file: %w", path, err)
 	}
 	if err = tmp.Close(); err != nil {
 		return fmt.Errorf("atomic write %s: close temp file: %w", path, err)
-	}
-	// CreateTemp makes the file 0600; apply the caller's mode explicitly.
-	if err = os.Chmod(tmpName, perm); err != nil {
-		return fmt.Errorf("atomic write %s: chmod temp file: %w", path, err)
 	}
 	if err = os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("atomic write %s: rename into place: %w", path, err)
