@@ -38,6 +38,14 @@ type LockTarget struct {
 	Path       string
 }
 
+// LockBlobTarget pairs a configured ciphertext name with exact bytes from a
+// repository snapshot (for example, Git's index). It lets hooks verify the
+// snapshot being committed without consulting a working-tree file.
+type LockBlobTarget struct {
+	Ciphertext string
+	Data       []byte
+}
+
 func ciphertextDigest(ciphertext []byte) string {
 	sum := sha256.Sum256(ciphertext)
 	return hex.EncodeToString(sum[:])
@@ -142,17 +150,39 @@ func lockMatches(lockPath, ciphertextName, fingerprint string, ciphertext []byte
 // with no extras, and verifies the recipient fingerprint and exact ciphertext
 // digest for every entry.
 func VerifyLock(lockPath string, targets []LockTarget, wantFingerprint string) error {
-	lock, err := loadLock(lockPath)
+	data, err := os.ReadFile(lockPath) //nolint:gosec // repository lock path
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("lock file %s is missing: run `envguardian encrypt` to regenerate it: %w", lockPath, err)
 		}
+		return fmt.Errorf("read lock file %s: %w", lockPath, err)
+	}
+	blobs := make([]LockBlobTarget, 0, len(targets))
+	for _, target := range targets {
+		ciphertext, readErr := os.ReadFile(target.Path) //nolint:gosec // validated managed ciphertext path
+		if readErr != nil {
+			return fmt.Errorf("read ciphertext %s while verifying lock: %w", target.Ciphertext, readErr)
+		}
+		blobs = append(blobs, LockBlobTarget{Ciphertext: target.Ciphertext, Data: ciphertext})
+	}
+	if err := VerifyLockBytes(data, blobs, wantFingerprint); err != nil {
+		return fmt.Errorf("lock file %s is invalid: %w", lockPath, err)
+	}
+	return nil
+}
+
+// VerifyLockBytes verifies an exact lock snapshot against exact ciphertext
+// snapshots. Ciphertext digests are derivatives of public data and are safe to
+// compare; no plaintext derivative is produced.
+func VerifyLockBytes(lockData []byte, targets []LockBlobTarget, wantFingerprint string) error {
+	lock, err := parseLock(lockData)
+	if err != nil {
 		return err
 	}
 	if len(lock.Files) != len(targets) {
-		return fmt.Errorf("lock file %s has %d entries, but config has %d ciphertexts", lockPath, len(lock.Files), len(targets))
+		return fmt.Errorf("lock has %d entries, but config has %d ciphertexts", len(lock.Files), len(targets))
 	}
-	wanted := make(map[string]LockTarget, len(targets))
+	wanted := make(map[string]LockBlobTarget, len(targets))
 	for _, target := range targets {
 		name := filepath.ToSlash(target.Ciphertext)
 		if _, duplicate := wanted[name]; duplicate {
@@ -163,22 +193,18 @@ func VerifyLock(lockPath string, targets []LockTarget, wantFingerprint string) e
 	for _, entry := range lock.Files {
 		target, ok := wanted[entry.Ciphertext]
 		if !ok {
-			return fmt.Errorf("lock file %s contains extra ciphertext entry %q", lockPath, entry.Ciphertext)
+			return fmt.Errorf("lock contains extra ciphertext entry %q", entry.Ciphertext)
 		}
 		if entry.RecipientsFingerprint != wantFingerprint {
 			return fmt.Errorf("recipient set is out of sync for %s: lock fingerprint differs from recipients.toml", entry.Ciphertext)
 		}
-		ciphertext, readErr := os.ReadFile(target.Path) //nolint:gosec // validated managed ciphertext path
-		if readErr != nil {
-			return fmt.Errorf("read ciphertext %s while verifying lock: %w", entry.Ciphertext, readErr)
-		}
-		if got := ciphertextDigest(ciphertext); got != entry.CiphertextSHA256 {
+		if got := ciphertextDigest(target.Data); got != entry.CiphertextSHA256 {
 			return fmt.Errorf("ciphertext %s does not match its lock digest; a write or merge may have been interrupted", entry.Ciphertext)
 		}
 		delete(wanted, entry.Ciphertext)
 	}
 	for name := range wanted {
-		return fmt.Errorf("lock file %s is missing configured ciphertext %q", lockPath, name)
+		return fmt.Errorf("lock is missing configured ciphertext %q", name)
 	}
 	return nil
 }

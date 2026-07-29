@@ -42,11 +42,15 @@ func TestResolveManagedPathRejectsUnsafeForms(t *testing.T) {
 
 func TestResolveManagedPathAllowsNestedDestination(t *testing.T) {
 	root := t.TempDir()
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := ResolveManagedPath(root, "config/dev/.env")
 	if err != nil {
 		t.Fatalf("nested path rejected: %v", err)
 	}
-	want := filepath.Join(root, "config", "dev", ".env")
+	want := filepath.Join(canonicalRoot, "config", "dev", ".env")
 	if got != want {
 		t.Fatalf("resolved = %q, want %q", got, want)
 	}
@@ -104,14 +108,18 @@ func TestParseRejectsMappingAliases(t *testing.T) {
 
 func TestParseResolvesPathsOnce(t *testing.T) {
 	root := t.TempDir()
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := Parse(root, []byte("version = 1\n[[file]]\nplaintext = \"config/dev/.env\"\nciphertext = \"config/dev/.env.age\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Files[0].PlaintextPath; got != filepath.Join(root, "config", "dev", ".env") {
+	if got := cfg.Files[0].PlaintextPath; got != filepath.Join(canonicalRoot, "config", "dev", ".env") {
 		t.Fatalf("resolved plaintext = %q", got)
 	}
-	if got := cfg.Files[0].CiphertextPath; got != filepath.Join(root, "config", "dev", ".env.age") {
+	if got := cfg.Files[0].CiphertextPath; got != filepath.Join(canonicalRoot, "config", "dev", ".env.age") {
 		t.Fatalf("resolved ciphertext = %q", got)
 	}
 }

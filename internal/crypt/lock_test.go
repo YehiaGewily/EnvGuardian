@@ -61,3 +61,24 @@ func TestVerifyLockRejectsMalformedStructure(t *testing.T) {
 		t.Fatalf("extra-entry error = %v", err)
 	}
 }
+
+func TestVerifyLockBytesUsesExactSnapshot(t *testing.T) {
+	fingerprint := "v1:" + strings.Repeat("b", 64)
+	ciphertext := []byte("public-ciphertext-snapshot")
+	lock, err := encodeLock([]LockEntry{{
+		Ciphertext:            ".env.age",
+		RecipientsFingerprint: fingerprint,
+		CiphertextSHA256:      ciphertextDigest(ciphertext),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []LockBlobTarget{{Ciphertext: ".env.age", Data: ciphertext}}
+	if err := VerifyLockBytes(lock, targets, fingerprint); err != nil {
+		t.Fatalf("VerifyLockBytes valid snapshot: %v", err)
+	}
+	targets[0].Data = append(append([]byte(nil), ciphertext...), '\n')
+	if err := VerifyLockBytes(lock, targets, fingerprint); err == nil || !strings.Contains(err.Error(), "does not match its lock digest") {
+		t.Fatalf("VerifyLockBytes changed snapshot error=%v", err)
+	}
+}
