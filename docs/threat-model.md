@@ -88,7 +88,8 @@ mapping.
 recipient keys. A bad, re-pointed, or former-recipient signature fails with the
 dedicated authenticity exit code before plaintext is written.
 
-For migration, missing signatures are warnings in v0.1.x and failures in v0.2.
+The v0.1.x migration permitted an explicit warning for missing signatures. v0.2
+fails closed when a detached signature is missing.
 The explicit acceptance transition remains required when managed commit inputs
 change; a valid artifact signature identifies a current recipient as sealer but
 does not prove that a branch was reviewed or approved.

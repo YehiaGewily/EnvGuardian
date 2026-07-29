@@ -29,8 +29,8 @@ not a demo.
    decryption itself never becomes proof of authorship.
 8. Documentation honesty is a release gate. A false README claim is treated as
    a bug of the same severity as the code it misdescribes.
-9. `v0.1.1` supports one file pair. Multi-file support returns in `v0.2.0` on
-   top of the transactional planner; this is sequencing, not abandonment.
+9. `v0.1.1` supported one file pair. Stage F restores multi-file support for
+   `v0.2.0` on the proven transactional planner.
 
 ## Stage map
 
@@ -80,7 +80,8 @@ in this repository. Complete and verify them before declaring Phase 0 done.
 - [x] Make `internal/rotation` and `internal/gitint` package docs describe only
   implemented code.
 - [x] Remove the unimplemented `rotation done` suggestion from `check`.
-- [x] Record the legacy milestone status accurately; M3 is unimplemented.
+- [x] Record the then-current legacy milestone status; Stage F's completed M3
+  entry below now supersedes that Phase 0 snapshot.
 - [x] Add a path-traversal advisory and disclosure address to `SECURITY.md`.
 - [x] Add a non-publishing `workflow_dispatch` verification path to the release
   workflow.
@@ -92,7 +93,7 @@ in this repository. Complete and verify them before declaring Phase 0 done.
 | M0 | Build/test/lint workflow and GoReleaser configuration exist. `v0.1.0` is only a development tag; no supported release or Homebrew tap exists. |
 | M1 | Parser, key loading, identity resolution, age wrapper, and commands exist as a prototype. Security and transaction remediation remains open. |
 | M2 | Hook, check, ignore, and diff prototypes exist. They are not yet safe or complete enough for real secrets. |
-| M3 | Unimplemented. There is no revoke command, rotation completion command, merge driver, or ADR set. |
+| M3 | Implemented for v0.2: transactional revocation, a key-name-only rotation ledger, a paused/finalized semantic merge driver, multi-file support, and ADRs 0001–0008. |
 
 **Done when:** the remote `main` branch cannot be pushed directly and every
 statement in the repository describes the current implementation honestly.
@@ -106,8 +107,8 @@ statement in the repository describes the current implementation honestly.
   recheck repository containment.
 - [x] Reject plaintext/ciphertext collisions and duplicate destinations,
   including aliases through symlinks or existing hard links.
-- [x] Enforce the `v0.1.1` single-file-pair boundary until the transactional
-  multi-file planner lands in `v0.2.0`.
+- [x] Enforce the `v0.1.1` single-file-pair boundary during remediation; Stage
+  F removes it only after multi-file planner tests pass.
 - [x] Validate `init --file` before any repository mutation.
 - [x] Route configured encrypt, decrypt, working diff, check, hook, and
   recipient operations through the resolved paths.
@@ -146,10 +147,8 @@ plaintext without explicit acceptance.
 
 ### Phase 3 — Single file pair, lock state, and seal planner
 
-- [x] Accept exactly one file pair per config and direct additional pairs to a
-  second `--config`, while keeping slice-shaped planning/commit APIs. Custom
-  config files use adjacent config-specific locks so the one-entry locks do not
-  overwrite one another.
+- [x] Initially accept one pair while keeping slice-shaped planning/commit APIs;
+  Stage F restores multiple mappings with one lock entry per ciphertext.
 - [x] Replace the global prototype lock with strict lock format v2: one entry
   per configured ciphertext, recipient fingerprint, and exact ciphertext
   SHA-256 digest.
@@ -203,8 +202,8 @@ unchanged under ordinary process errors.
   failure.
 - [x] Delete the unused `--no-color` flag and implement secret-safe
   `--verbose` progress.
-- [x] Support `--json` only for `check` and `list-recipients`; reject it on
-  other commands.
+- [x] Support `--json` for `check`, `list-recipients`, `rotation status`, and
+  `rotation done`; reject it on other commands.
 - [x] Discover the repository root when commands run from subdirectories, while
   preserving explicit `--config` behavior.
 - [x] Add meaningful config-package coverage for versions, unknown fields,
@@ -272,7 +271,7 @@ values or other plaintext derivatives.
 ### Phase 9 — Sign the ciphertext
 
 - [x] Record the mechanism first in
-  [ADR 0008](adr/0008-ssh-signatures-for-ciphertext-authenticity.md): OpenSSH
+  [ADR 0008](adr/0008-ciphertext-authentication.md): OpenSSH
   signatures reuse recipient SSH keys and delegate cryptography to
   `ssh-keygen -Y sign/verify`.
 - [x] Generate `.env.age.sig` alongside ciphertext and include it in the
@@ -327,8 +326,9 @@ the remaining Windows ACL limitation stated instead of hidden.
 
 ### Phase 12 — Tests and coverage gates
 
-- [x] Raise `crypt` to 85.1%, `config` to 86.2%, `keys` to 85.6%, and keep
-  `dotenv` at 90.8%; raise honest whole-repository statement coverage to 80.5%.
+- [x] Keep `crypt` at 85.5%, `config` at 86.0%, `keys` at 85.6%, and `dotenv`
+  at 90.8%; Stage F's added behavior tests keep honest whole-repository
+  statement coverage at 81.2%.
 - [x] Add a checked-in coverage gate enforcing package floors and 80% overall,
   and upload the aggregate profile from CI.
 - [x] Run the pinned godotenv v1.5.1 differential suite as an explicit CI job
@@ -343,4 +343,45 @@ the remaining Windows ACL limitation stated instead of hidden.
 **Done:** local validation passes the same package and aggregate coverage
 floors now encoded in CI, and verification dependencies are immutable.
 
-Later stage checklists will be added under user direction.
+## Stage F — Features (v0.2.0)
+
+### Phase 13 — M3
+
+#### Revocation and rotation
+
+- [x] Implement a strict versioned rotation ledger containing key names only.
+- [x] Add transactional `revoke NAME`, refuse the last-recipient removal, and
+  derive pending names from authenticated, decrypted current ciphertext.
+- [x] Add `rotation status` and `rotation done KEY`, including key-name-only
+  JSON and atomic ledger writes.
+- [x] Fail on unreadable or malformed ledgers and state plainly that Git
+  history remains decryptable until credentials are rotated at their source.
+- [x] Test successful revocation, last-recipient refusal, malformed state,
+  value non-disclosure, and no mutation on stale-plaintext divergence.
+
+#### Merge driver
+
+- [x] Record the base/ours/theirs policy in
+  [the merge decision table](merge-driver-decision-table.md) before code.
+- [x] Merge semantic key/value state in memory, retain ours formatting for
+  comment-only/reorder equality, and report conflicts by key name only.
+- [x] Register executable commands only in local Git config; repository
+  `.gitattributes` selects driver names and disables ciphertext line conversion.
+- [x] Pause successful low-level merges, then make `merge --continue` resolve
+  every configured ciphertext and commit ciphertexts, signatures, and the
+  complete lock through one planner transaction before staging them.
+- [x] Test real diverging branches for a successful independent-key merge and
+  a same-key conflict whose streams contain no sentinel values.
+
+#### ADRs and multi-file support
+
+- [x] Add ADRs 0001–0008 covering age, SSH identities, revocation versus
+  rotation, ciphertext idempotency, managed paths, lock/transactions,
+  repository versus local checks, and ciphertext authentication.
+- [x] Restore multiple file mappings on the plural planner; verify shared-lock
+  lookup and unchanged multi-file idempotency.
+- [x] Make missing signatures fail closed for v0.2 rather than using the
+  v0.1.x migration warning.
+
+**Done:** M3 operates on the same containment, authentication, and transaction
+boundaries as sealing; successful merges cannot leave a falsely current lock.
