@@ -340,13 +340,13 @@ func TestPreCommitRejectsBadSignature(t *testing.T) {
 	}
 }
 
-func TestPreCommitAllowsMissingSignatureWithMigrationWarning(t *testing.T) {
+func TestPreCommitRejectsMissingSignature(t *testing.T) {
 	repo, identity := setupCommittedHookRepo(t)
 	if out, code := run(t, repo, "git", "rm", ".env.age.sig"); code != exitOK {
 		t.Fatalf("git rm signature: %d\n%s", code, out)
 	}
 	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
-	if code != exitOK || !strings.Contains(out, unsignedMigrationWarning) {
-		t.Fatalf("missing signature migration exit=%d\n%s", code, out)
+	if code != exitSignature || !strings.Contains(out, missingSignatureFailure) {
+		t.Fatalf("missing signature exit=%d\n%s", code, out)
 	}
 }

@@ -71,8 +71,10 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if flags.json && cmd.Name() != "check" && cmd.Name() != "list-recipients" {
-				return withExit(exitConfig, fmt.Errorf("--json is not supported by %q; use it only with check or list-recipients", cmd.Name()))
+			jsonCommand := cmd.Name() == "check" || cmd.Name() == "list-recipients" ||
+				cmd.CommandPath() == "envguardian rotation status" || cmd.CommandPath() == "envguardian rotation done"
+			if flags.json && !jsonCommand {
+				return withExit(exitConfig, fmt.Errorf("--json is not supported by %q; use it only with check or list-recipients (and rotation status or rotation done)", cmd.CommandPath()))
 			}
 			if flags.verbose {
 				fmt.Fprintf(cmd.ErrOrStderr(), "envguardian: verbose: command=%s\n", cmd.Name())
@@ -93,7 +95,9 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newEncryptCmd(flags),
 		newDecryptCmd(flags),
 		newAddRecipientCmd(flags),
+		newRevokeCmd(flags),
 		newListRecipientsCmd(flags),
+		newRotationCmd(flags),
 		newCheckCmd(flags),
 		newCheckLocalCmd(flags),
 		newInstallHooksCmd(flags),
@@ -101,6 +105,9 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newHookPreCommitCmd(flags),
 		newDiffCmd(flags),
 		newDiffDriverCmd(flags),
+		newMergeCmd(flags),
+		newMergeDriverCmd(flags),
+		newMergeGeneratedDriverCmd(),
 	)
 
 	return root

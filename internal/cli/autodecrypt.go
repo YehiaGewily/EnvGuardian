@@ -237,15 +237,14 @@ func decryptCommitSnapshot(root, commit string, p config.Paths, cfg *config.Conf
 			return signatureErr
 		}
 		if !signatureBlob.Exists {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
-		} else {
-			binding := authenticity.Binding{
-				RecipientsFingerprint: rf.Fingerprint(), ConfigPath: configRel,
-				PlaintextPath: fp.Plaintext, CiphertextPath: fp.Ciphertext,
-			}
-			if _, verifyErr := authenticity.Verify(signatureBlob.Data, rf, binding, blob.Data); verifyErr != nil {
-				return verifyErr
-			}
+			return &authenticity.SignatureError{CiphertextPath: fp.Ciphertext, Reason: missingSignatureFailure}
+		}
+		binding := authenticity.Binding{
+			RecipientsFingerprint: rf.Fingerprint(), ConfigPath: configRel,
+			PlaintextPath: fp.Plaintext, CiphertextPath: fp.Ciphertext,
+		}
+		if _, verifyErr := authenticity.Verify(signatureBlob.Data, rf, binding, blob.Data); verifyErr != nil {
+			return verifyErr
 		}
 		prepared = append(prepared, preparedCiphertext{pair: fp, data: blob.Data})
 	}

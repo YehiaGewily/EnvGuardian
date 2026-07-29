@@ -11,7 +11,7 @@ import (
 	"github.com/YehiaGewily/envguardian/internal/keys"
 )
 
-const unsignedMigrationWarning = "WARNING: ciphertext signature is missing; v0.1.x allows this only for migration, and v0.2 will reject it"
+const missingSignatureFailure = "detached ciphertext signature is missing"
 
 func signatureBinding(p config.Paths, fp config.FilePair, fingerprint string) (authenticity.Binding, error) {
 	configRel, err := repoRelative(p.Root, p.Config)
@@ -60,7 +60,7 @@ func planCiphertextSignature(p config.Paths, fp config.FilePair, fingerprint str
 func verifyCiphertextSignature(p config.Paths, fp config.FilePair, rf *keys.RecipientsFile, ciphertext []byte) (signer string, missing bool, err error) {
 	signature, readErr := os.ReadFile(fp.SignaturePath) //nolint:gosec // validated derived signature path
 	if errors.Is(readErr, os.ErrNotExist) {
-		return "", true, nil
+		return "", false, &authenticity.SignatureError{CiphertextPath: fp.Ciphertext, Reason: missingSignatureFailure, Err: readErr}
 	}
 	if readErr != nil {
 		return "", false, &authenticity.SignatureError{CiphertextPath: fp.Ciphertext, Reason: "read detached signature", Err: readErr}

@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"filippo.io/age"
-	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
+	"github.com/YehiaGewily/envguardian/internal/rotation"
 )
 
 // checkResult is one line of check output.
@@ -163,12 +162,9 @@ func checkCiphertextSignature(p config.Paths, fp config.FilePair, rf *keys.Recip
 	if err != nil {
 		return checkResult{Name: name, Detail: fmt.Sprintf("cannot read ciphertext for signature verification: %v", err)}
 	}
-	signer, missing, err := verifyCiphertextSignature(p, fp, rf, ciphertext)
+	signer, _, err := verifyCiphertextSignature(p, fp, rf, ciphertext)
 	if err != nil {
 		return checkResult{Name: name, Detail: err.Error(), Code: exitSignature}
-	}
-	if missing {
-		return checkResult{Name: name, OK: true, Warning: true, Detail: unsignedMigrationWarning}
 	}
 	return checkResult{Name: name, OK: true, Detail: fmt.Sprintf("valid; signed by current recipient %q", signer)}
 }
@@ -235,42 +231,15 @@ func checkLocalPair(fp config.FilePair, identities []age.Identity, allowMissing 
 }
 
 func checkRotations(p config.Paths) checkResult {
-	candidate := filepath.Join(p.Dir, "rotation.toml")
-	rel, err := filepath.Rel(p.Root, candidate)
+	ledger, err := rotation.Load(p.Rotation)
 	if err != nil {
-		return checkResult{Name: "rotations", Detail: fmt.Sprintf("resolve rotation ledger path: %v", err), Code: exitConfig}
+		return checkResult{Name: "rotations", Detail: err.Error(), Code: exitConfig}
 	}
-	path, err := config.ResolveManagedPath(p.Root, filepath.ToSlash(rel))
-	if err != nil {
-		return checkResult{Name: "rotations", Detail: fmt.Sprintf("unsafe rotation ledger path: %v", err), Code: exitConfig}
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // validated repository metadata path
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return checkResult{Name: "rotations", OK: true, Detail: "ledger absent; none pending"}
-		}
-		return checkResult{Name: "rotations", Detail: fmt.Sprintf("cannot read rotation ledger: %v", err), Code: exitConfig}
-	}
-	var rot struct {
-		Pending []struct {
-			Key string `toml:"key"`
-		} `toml:"pending"`
-	}
-	metadata, err := toml.Decode(string(data), &rot)
-	if err != nil {
-		return checkResult{Name: "rotations", Detail: "rotation.toml is malformed", Code: exitConfig}
-	}
-	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
-		return checkResult{Name: "rotations", Detail: fmt.Sprintf("rotation.toml has unknown field %q", undecoded[0].String()), Code: exitConfig}
-	}
-	if len(rot.Pending) == 0 {
+	if len(ledger.Pending) == 0 {
 		return checkResult{Name: "rotations", OK: true, Detail: "none pending"}
 	}
-	keyNames := make([]string, len(rot.Pending))
-	for i, pending := range rot.Pending {
-		keyNames[i] = pending.Key
-	}
-	return checkResult{Name: "rotations", Detail: fmt.Sprintf("%d pending keys: %v", len(rot.Pending), keyNames)}
+	keyNames := ledger.Keys()
+	return checkResult{Name: "rotations", Detail: fmt.Sprintf("%d pending keys: %v", len(ledger.Pending), keyNames)}
 }
 
 func printCheckResults(cmd *cobra.Command, flags *globalFlags, results []checkResult) error {

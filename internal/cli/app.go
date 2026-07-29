@@ -102,6 +102,9 @@ func secureRootPaths(flags *globalFlags) (config.Paths, error) {
 	if p.Lock, err = resolve("lock", p.Lock); err != nil {
 		return config.Paths{}, withExit(exitConfig, err)
 	}
+	if p.Rotation, err = resolve("rotation ledger", p.Rotation); err != nil {
+		return config.Paths{}, withExit(exitConfig, err)
+	}
 	if p.State, err = resolve("automatic-decryption state", p.State); err != nil {
 		return config.Paths{}, withExit(exitConfig, err)
 	}
