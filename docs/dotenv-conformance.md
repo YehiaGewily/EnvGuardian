@@ -264,7 +264,8 @@ D=2
 > **Why:** in a reviewed, committed secrets file a duplicate is a merge mistake
 > or a copy-paste bug; "last wins" would let a stale value silently shadow the
 > intended one. Fail loudly — this is cheap insurance against a whole class of
-> bad merges. A merge driver is planned for `v0.2.0`; it is not implemented.
+> bad merges. v0.2 includes a semantic three-way merge driver that ignores
+> comment/reorder-only changes and reports conflicts by key name only.
 
 ### J. CRLF line endings
 

@@ -197,7 +197,7 @@ func TestCheckDetectsCiphertextLockDigestMismatch(t *testing.T) {
 	}
 }
 
-func TestMissingSignatureIsMigrationWarning(t *testing.T) {
+func TestMissingSignatureFailsClosed(t *testing.T) {
 	pinDate(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -206,14 +206,14 @@ func TestMissingSignatureIsMigrationWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _, code := runCLI(t, "check", "--identity", idPath)
-	if code != exitOK || !strings.Contains(out, "[WARN]") || !strings.Contains(out, "v0.2 will reject") {
+	if code != exitSignature || !strings.Contains(out, "[FAIL]") || !strings.Contains(out, missingSignatureFailure) {
 		t.Fatalf("unsigned check exit=%d\n%s", code, out)
 	}
 	if err := os.Remove(filepath.Join(dir, ".env")); err != nil {
 		t.Fatal(err)
 	}
 	_, stderr, code := runCLI(t, "decrypt", "--identity", idPath)
-	if code != exitOK || !strings.Contains(stderr, unsignedMigrationWarning) {
+	if code != exitSignature || !strings.Contains(stderr, missingSignatureFailure) {
 		t.Fatalf("unsigned decrypt exit=%d stderr=%s", code, stderr)
 	}
 }

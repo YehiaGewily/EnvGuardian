@@ -295,7 +295,7 @@ func newHookPreCommitCmd(flags *globalFlags) *cobra.Command {
 	}
 }
 
-func runHookPreCommit(flags *globalFlags, stderr io.Writer) error {
+func runHookPreCommit(flags *globalFlags, _ io.Writer) error {
 	p, err := secureRootPaths(flags)
 	if err != nil {
 		return err
@@ -408,8 +408,7 @@ func runHookPreCommit(flags *globalFlags, stderr io.Writer) error {
 	for _, fp := range cfg.Files {
 		signature := signatureBlobs[fp.Ciphertext]
 		if !signature.Exists {
-			fmt.Fprintf(stderr, "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
-			continue
+			return &authenticity.SignatureError{CiphertextPath: fp.Ciphertext, Reason: missingSignatureFailure}
 		}
 		binding := authenticity.Binding{
 			RecipientsFingerprint: rf.Fingerprint(), ConfigPath: configRel,

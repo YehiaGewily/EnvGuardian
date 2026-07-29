@@ -158,6 +158,61 @@ func TestCommitSealPlansRollsBackOrdinaryFailure(t *testing.T) {
 	}
 }
 
+func TestCommitSealPlansMultipleCiphertexts(t *testing.T) {
+	dir := t.TempDir()
+	alice := newParty(t)
+	fingerprint := fingerprintOf(alice)
+	lockPath := filepath.Join(dir, "lock.toml")
+	cfg := Config{Identities: []age.Identity{alice.id}, LockPath: lockPath, Fingerprint: fingerprint, Label: "test"}
+	recipients := recipientsOf(alice)
+
+	type managed struct {
+		plain  string
+		cipher string
+		name   string
+	}
+	files := []managed{
+		{plain: filepath.Join(dir, "app.env"), cipher: filepath.Join(dir, "app.env.age"), name: "app.env.age"},
+		{plain: filepath.Join(dir, "worker.env"), cipher: filepath.Join(dir, "worker.env.age"), name: "worker.env.age"},
+	}
+	for i, file := range files {
+		if err := os.WriteFile(file.plain, []byte(fmt.Sprintf("VALUE=%d\n", i+1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	plans := make([]*SealPlan, 0, len(files))
+	for _, file := range files {
+		plan, err := PlanSeal(cfg, recipients, file.plain, file.cipher, file.name)
+		if err != nil {
+			t.Fatalf("plan %s: %v", file.name, err)
+		}
+		plans = append(plans, plan)
+	}
+	if err := CommitSealPlans(plans, CommitOptions{LockPath: lockPath, RecipientsFingerprint: fingerprint}); err != nil {
+		t.Fatalf("commit multi-file plans: %v", err)
+	}
+	targets := make([]LockTarget, 0, len(files))
+	for _, file := range files {
+		targets = append(targets, LockTarget{Ciphertext: file.name, Path: file.cipher})
+	}
+	if err := VerifyLock(lockPath, targets, fingerprint); err != nil {
+		t.Fatalf("verify multi-file lock: %v", err)
+	}
+
+	// Each plan must recognize its own entry in the shared lock, otherwise an
+	// unchanged multi-file encrypt would churn randomized age ciphertext.
+	for _, file := range files {
+		plan, err := PlanSeal(cfg, recipients, file.plain, file.cipher, file.name)
+		if err != nil {
+			t.Fatalf("replan %s: %v", file.name, err)
+		}
+		if plan.Changed {
+			t.Fatalf("unchanged multi-file plan %s requested a rewrite", file.name)
+		}
+	}
+}
+
 func TestCommitSealPlansRollsBackAdditionalMetadata(t *testing.T) {
 	f := newFixture(t, "A=1\n")
 	a, b := newParty(t), newParty(t)
@@ -238,5 +293,100 @@ func TestPlanningReadFailuresWriteNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(cipherPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("planning failure wrote ciphertext")
+	}
+}
+
+func TestPlanSealResolvedContentBranches(t *testing.T) {
+	t.Run("new ciphertext", func(t *testing.T) {
+		dir := t.TempDir()
+		alice := newParty(t)
+		path := filepath.Join(dir, "new.age")
+		plan, err := PlanSealResolvedContent(Config{Fingerprint: fingerprintOf(alice)}, recipientsOf(alice), []byte("A=1\n"), path, "new.age")
+		if err != nil || !plan.Changed || plan.ExistingExists {
+			t.Fatalf("new resolved plan = %+v, %v", plan, err)
+		}
+		if err := CommitMergeCiphertext(plan); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("unchanged and changed", func(t *testing.T) {
+		f := newFixture(t, "A=base\n")
+		alice := newParty(t)
+		cfg := f.config([]age.Identity{alice.id}, fingerprintOf(alice))
+		if _, err := Seal(cfg, recipientsOf(alice), f.plain, f.cipher); err != nil {
+			t.Fatal(err)
+		}
+		unchanged, err := PlanSealResolvedContent(cfg, recipientsOf(alice), []byte("# reordered formatting\nA=base\n"), f.cipher, filepath.Base(f.cipher))
+		if err != nil || unchanged.Changed {
+			t.Fatalf("unchanged resolved plan = %+v, %v", unchanged, err)
+		}
+		changed, err := PlanSealResolvedContent(cfg, recipientsOf(alice), []byte("A=merged\n"), f.cipher, filepath.Base(f.cipher))
+		if err != nil || !changed.Changed {
+			t.Fatalf("changed resolved plan = %+v, %v", changed, err)
+		}
+		if err := CommitMergeCiphertext(changed); err != nil {
+			t.Fatal(err)
+		}
+		plaintext, file, err := DecryptBytesToDotenv([]age.Identity{alice.id}, readRequired(t, f.cipher))
+		if err != nil || file == nil || string(plaintext) != "A=merged\n" {
+			t.Fatalf("merged ciphertext content was not committed: %v", err)
+		}
+	})
+
+	t.Run("recipient change forces rewrite", func(t *testing.T) {
+		f := newFixture(t, "A=base\n")
+		alice, bob := newParty(t), newParty(t)
+		initial := f.config([]age.Identity{alice.id}, fingerprintOf(alice))
+		if _, err := Seal(initial, recipientsOf(alice), f.plain, f.cipher); err != nil {
+			t.Fatal(err)
+		}
+		next := f.config([]age.Identity{alice.id}, fingerprintOf(alice, bob))
+		plan, err := PlanSealResolvedContent(next, recipientsOf(alice, bob), []byte("A=base\n"), f.cipher, filepath.Base(f.cipher))
+		if err != nil || !plan.Changed {
+			t.Fatalf("recipient-change plan = %+v, %v", plan, err)
+		}
+	})
+}
+
+func TestPlanSealResolvedContentFailures(t *testing.T) {
+	alice, wrong := newParty(t), newParty(t)
+	f := newFixture(t, "A=base\n")
+	cfg := f.config([]age.Identity{alice.id}, fingerprintOf(alice))
+	if _, err := Seal(cfg, recipientsOf(alice), f.plain, f.cipher); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanSealResolvedContent(cfg, recipientsOf(alice), []byte("not dotenv"), f.cipher, ".env.age"); err == nil {
+		t.Fatal("invalid resolved dotenv was accepted")
+	}
+	if _, err := PlanSealResolvedContent(Config{Fingerprint: cfg.Fingerprint, LockPath: f.lock}, recipientsOf(alice), []byte("A=next\n"), f.cipher, ".env.age"); err == nil {
+		t.Fatal("existing ciphertext was accepted without an identity")
+	}
+	if _, err := PlanSealResolvedContent(Config{Identities: []age.Identity{wrong.id}, Fingerprint: cfg.Fingerprint, LockPath: f.lock}, recipientsOf(alice), []byte("A=next\n"), f.cipher, ".env.age"); err == nil {
+		t.Fatal("undecryptable existing ciphertext was accepted")
+	}
+}
+
+func TestCommitMergeCiphertextRejectsInvalidAndStalePlans(t *testing.T) {
+	if err := CommitMergeCiphertext(nil); err == nil {
+		t.Fatal("nil merge plan was accepted")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cipher.age")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := &SealPlan{
+		CiphertextPath: path, Existing: []byte("before"), ExistingExists: true,
+		Replacement: []byte("after"), Changed: true,
+	}
+	if err := os.WriteFile(path, []byte("raced"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitMergeCiphertext(plan); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("stale merge plan error = %v", err)
 	}
 }

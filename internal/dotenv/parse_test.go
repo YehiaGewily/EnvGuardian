@@ -284,6 +284,23 @@ func TestGetSetKeys(t *testing.T) {
 	}
 }
 
+func TestDeleteUpdatesIndexAndPreservesOtherEntries(t *testing.T) {
+	f, err := Parse(strings.NewReader("# keep\nA=1\nB=2\nC=3\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Delete("B") || f.Delete("missing") {
+		t.Fatal("Delete returned incorrect membership")
+	}
+	f.Set("C", "next")
+	if got := strings.Join(f.Keys(), ","); got != "A,C" {
+		t.Fatalf("keys = %s", got)
+	}
+	if value, ok := f.Get("C"); !ok || value != "next" {
+		t.Fatalf("C = %q, %v", value, ok)
+	}
+}
+
 func TestEmptyInput(t *testing.T) {
 	f := parse(t, "")
 	if len(f.nodes) != 0 {

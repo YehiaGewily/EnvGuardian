@@ -25,6 +25,8 @@ const (
 	RecipientsFile = "recipients.toml"
 	// LockFile records the recipient-set fingerprint.
 	LockFile = "lock.toml"
+	// RotationFile records public dotenv key names pending rotation.
+	RotationFile = "rotation.toml"
 	// AutoDecryptStateFile records the last commit explicitly accepted or
 	// successfully processed by the automatic-decryption hook. It is local and
 	// must remain gitignored.
@@ -43,6 +45,7 @@ type Paths struct {
 	Config     string
 	Recipients string
 	Lock       string
+	Rotation   string
 	State      string
 }
 
@@ -55,6 +58,7 @@ func PathsFor(root string) Paths {
 		Config:     filepath.Join(dir, ConfigFile),
 		Recipients: filepath.Join(dir, RecipientsFile),
 		Lock:       filepath.Join(dir, LockFile),
+		Rotation:   filepath.Join(dir, RotationFile),
 		State:      filepath.Join(dir, AutoDecryptStateFile),
 	}
 }
@@ -160,9 +164,6 @@ func (c *Config) ValidateAndResolve(root string) error {
 				return fmt.Errorf("plaintext %q and signature for ciphertext %q resolve to the same file", c.Files[i].Plaintext, c.Files[j].Ciphertext)
 			}
 		}
-	}
-	if len(c.Files) != 1 {
-		return fmt.Errorf("v0.1.1 supports exactly one [[file]] mapping; use a second --config file for another pair until transactional multi-file support returns in v0.2.0")
 	}
 	return nil
 }

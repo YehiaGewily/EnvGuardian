@@ -231,7 +231,7 @@ func TestAcceptChangesRejectsBadSignatureWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestAcceptChangesAllowsMissingSignatureWithMigrationWarning(t *testing.T) {
+func TestAcceptChangesRejectsMissingSignature(t *testing.T) {
 	fixture := setupTrustedRepo(t, "SAFE=original\n")
 	if out, code := run(t, fixture.repo, "git", "rm", ".env.age.sig"); code != 0 {
 		t.Fatalf("remove signature: %d\n%s", code, out)
@@ -244,12 +244,12 @@ func TestAcceptChangesAllowsMissingSignatureWithMigrationWarning(t *testing.T) {
 	}
 	out, stderr, code := runCLIInDir(t, fixture.repo, "decrypt", "--identity", fixture.identity, "--accept-changes")
 	out += stderr
-	if code != exitOK || !strings.Contains(out, unsignedMigrationWarning) {
-		t.Fatalf("unsigned migration acceptance exit=%d\n%s", code, out)
+	if code != exitSignature || !strings.Contains(out, missingSignatureFailure) {
+		t.Fatalf("unsigned acceptance exit=%d\n%s", code, out)
 	}
 	got, err := os.ReadFile(filepath.Join(fixture.repo, ".env"))
-	if err != nil || string(got) != "SAFE=original\n" {
-		t.Fatalf("unsigned migration did not decrypt: %q, %v", got, err)
+	if err != nil || string(got) != "SAFE=sentinel\n" {
+		t.Fatalf("unsigned artifact modified plaintext: %q, %v", got, err)
 	}
 }
 

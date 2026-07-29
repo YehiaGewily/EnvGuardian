@@ -75,6 +75,11 @@ type File struct {
 	trailNL bool           // input ended with a newline
 }
 
+// New returns an empty dotenv file ready for Set operations.
+func New() *File {
+	return &File{idx: make(map[string]int), eol: "\n"}
+}
+
 // ParseError reports a malformed line. It always carries a 1-based line number
 // and, where possible, a hint describing how to fix it.
 type ParseError struct {
@@ -545,6 +550,23 @@ func (f *File) Set(key, value string) {
 		entry: &Entry{Key: key, Value: value, Quote: QuoteNone},
 		dirty: true,
 	})
+}
+
+// Delete removes key while retaining all unrelated ordering and comments. It
+// returns whether the key was present.
+func (f *File) Delete(key string) bool {
+	i, ok := f.idx[key]
+	if !ok {
+		return false
+	}
+	f.nodes = append(f.nodes[:i], f.nodes[i+1:]...)
+	delete(f.idx, key)
+	for position := i; position < len(f.nodes); position++ {
+		if f.nodes[position].kind == kindEntry {
+			f.idx[f.nodes[position].entry.Key] = position
+		}
+	}
+	return true
 }
 
 // Keys returns the entry keys in the order they appear in the file.

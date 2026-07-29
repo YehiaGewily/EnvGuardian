@@ -84,6 +84,30 @@ func TestVerifyLockBytesUsesExactSnapshot(t *testing.T) {
 	}
 }
 
+func TestLockMatchesEntryInMultiFileLock(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "lock.toml")
+	fingerprint := "v1:" + strings.Repeat("d", 64)
+	first := []byte("first-public-ciphertext")
+	second := []byte("second-public-ciphertext")
+	data, err := encodeLock([]LockEntry{
+		{Ciphertext: "first.age", RecipientsFingerprint: fingerprint, CiphertextSHA256: ciphertextDigest(first)},
+		{Ciphertext: "second.age", RecipientsFingerprint: fingerprint, CiphertextSHA256: ciphertextDigest(second)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !lockMatches(lockPath, "second.age", fingerprint, second) {
+		t.Fatal("lockMatches rejected a valid entry in a multi-file lock")
+	}
+	if lockMatches(lockPath, "second.age", fingerprint, append(second, '\n')) {
+		t.Fatal("lockMatches accepted ciphertext bytes that differ from the lock digest")
+	}
+}
+
 func TestLockVerificationFailureModes(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "lock.toml")

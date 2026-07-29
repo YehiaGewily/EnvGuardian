@@ -132,15 +132,18 @@ func TestParseResolvesPathsOnce(t *testing.T) {
 	}
 }
 
-func TestParseRejectsMultipleDistinctMappings(t *testing.T) {
+func TestParseAcceptsMultipleDistinctMappings(t *testing.T) {
 	root := t.TempDir()
 	body := "version = 1\n[[file]]\nplaintext = \"a.env\"\nciphertext = \"a.age\"\n[[file]]\nplaintext = \"b.env\"\nciphertext = \"b.age\"\n"
-	_, err := Parse(root, []byte(body))
-	if err == nil || !strings.Contains(err.Error(), "exactly one [[file]] mapping") {
-		t.Fatalf("error = %v, want single-file compatibility error", err)
+	cfg, err := Parse(root, []byte(body))
+	if err != nil {
+		t.Fatalf("Parse multi-file config: %v", err)
 	}
-	if !strings.Contains(err.Error(), "--config") {
-		t.Fatalf("error = %v, want guidance to use a second --config", err)
+	if len(cfg.Files) != 2 {
+		t.Fatalf("file mappings = %d, want 2", len(cfg.Files))
+	}
+	if filepath.Base(cfg.Files[0].PlaintextPath) != "a.env" || filepath.Base(cfg.Files[1].CiphertextPath) != "b.age" {
+		t.Fatalf("resolved mappings = %+v", cfg.Files)
 	}
 }
 
@@ -176,7 +179,7 @@ func TestLoadPreservesNotExist(t *testing.T) {
 func TestPathsLoadAndSaveRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	paths := PathsFor(root)
-	if paths.Root != root || paths.Dir != filepath.Join(root, Dir) || paths.State != filepath.Join(root, Dir, AutoDecryptStateFile) {
+	if paths.Root != root || paths.Dir != filepath.Join(root, Dir) || paths.State != filepath.Join(root, Dir, AutoDecryptStateFile) || paths.Rotation != filepath.Join(root, Dir, RotationFile) {
 		t.Fatalf("PathsFor returned unexpected conventional paths: %+v", paths)
 	}
 	if err := os.MkdirAll(paths.Dir, 0o755); err != nil {

@@ -53,13 +53,11 @@ func runDecrypt(cmd *cobra.Command, flags *globalFlags, acceptChanges bool) erro
 		if readErr != nil {
 			return fmt.Errorf("read ciphertext %s: %w", fp.Ciphertext, readErr)
 		}
-		signer, missing, verifyErr := verifyCiphertextSignature(p, fp, rf, ciphertext)
+		signer, _, verifyErr := verifyCiphertextSignature(p, fp, rf, ciphertext)
 		if verifyErr != nil {
 			return verifyErr
 		}
-		if missing {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
-		} else if flags.verbose {
+		if flags.verbose {
 			fmt.Fprintf(cmd.ErrOrStderr(), "envguardian: verbose: signature for %s verified as recipient %q\n", fp.Ciphertext, signer)
 		}
 		if err := crypt.Open(ccfg, fp.CiphertextPath, fp.PlaintextPath); err != nil {

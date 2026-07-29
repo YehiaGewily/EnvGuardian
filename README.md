@@ -29,24 +29,23 @@ go run ./cmd/envguardian version
 Do not install hooks from `v0.1.0`. Development code for `v0.1.1` now contains
 the Stage A path-containment and explicit-acceptance controls, the Stage B
 transactional sealing core, the Stage C fail-closed verification paths, Stage D
-detached SSH signatures, and Stage E secret-safe/atomic hygiene and coverage
-gates. The project remains unsupported until final release verification and
-repository protection are complete.
+detached SSH signatures, Stage E secret-safe/atomic hygiene and coverage gates,
+and Stage F v0.2 feature work. The project remains unsupported until final
+release verification and repository protection are complete.
 
 ## Current implementation status
 
-The prototype contains `init`, `encrypt`, `decrypt`, `add-recipient`,
-`list-recipients`, `check`, `check-local`, `install-hooks`, and `diff`. Their
+The prototype contains `init`, `encrypt`, `decrypt`, `add-recipient`, `revoke`,
+`rotation`, `list-recipients`, `check`, `check-local`, `install-hooks`, `diff`,
+and `merge`. Their
 presence does not mean they are ready to protect real secrets:
 
 - Managed plaintext and ciphertext paths are resolved at config load, confined
   to the repository, checked through existing-parent symlinks, and excluded
   from `.git/`.
-- `v0.1.1` accepts exactly one plaintext/ciphertext pair per `--config`. The
-  internal seal/commit API remains slice-shaped for transactional multi-file
-  support in `v0.2.0`. A non-default config gets an adjacent config-specific
-  lock (`staging.toml` uses `staging.lock.toml`) so separate invocations do not
-  overwrite each other's lock entry.
+- v0.2 configuration accepts multiple distinct plaintext/ciphertext mappings.
+  Every replacement is planned before mutation and the shared lock contains one
+  exact entry per configured ciphertext.
 - Existing ciphertext is decrypted and semantically compared before any
   replacement. A simultaneous recipient change and divergent local plaintext
   is rejected instead of silently choosing the local file.
@@ -84,15 +83,21 @@ presence does not mean they are ready to protect real secrets:
   input and untrusted upstream output. All production file writes use the
   atomic writer, and CI enforces `crypt`, `config`, `keys`, and `dotenv` at 85%
   plus 80% whole-repository statement coverage.
+- `revoke NAME` removes access through the planner and records affected dotenv
+  key names in the public rotation ledger. `rotation status` and `rotation done
+  KEY` track external credential rotation; re-encryption cannot erase access to
+  ciphertext already present in Git history.
+- `merge --install` registers local semantic drivers. Git pauses even a clean
+  key-level resolution so `merge --continue` can re-encrypt, re-sign, rebuild
+  the complete lock transactionally, and stage the generated artifacts.
 - age still provides confidentiality, not sender authentication. EnvGuardian's
-  separate detached SSH signature establishes ciphertext authorship. During
-  the v0.1.x migration, a missing signature is a visible warning; any present
-  invalid or non-recipient signature fails closed. Missing signatures become a
-  failure in v0.2.
-- Revocation, rotation commands, and the merge driver are not implemented.
+  separate detached SSH signature establishes ciphertext authorship. The
+  v0.1.x missing-signature warning is retired: invalid, non-recipient, and
+  missing signatures all fail closed in v0.2.
 
 The authoritative status and sequencing are in [docs/PLAN.md](docs/PLAN.md).
-The old M0/M1/M2/M3 plan is historical; M3 is unimplemented.
+The old M0/M1/M2/M3 plan is historical; current implementation status is kept
+in the tracked remediation plan.
 
 ## Threat model
 
@@ -141,10 +146,9 @@ security-sensitive paths in [.github/CODEOWNERS](.github/CODEOWNERS).
 ## `.env` parsing conformance
 
 There is no `.env` standard. EnvGuardian's parser is stricter on ambiguity and
-preserves source formatting. The current automated differential test compares
-only with `joho/godotenv`; it has a build tag and does not run in the normal CI
-workflow. The Python, Node, and Docker columns are documented reference notes,
-not CI-verified claims. See
+preserves source formatting. CI explicitly runs the pinned `joho/godotenv`
+differential suite. Python, Node, and Docker columns are documented reference
+notes, not CI-verified claims. See
 [docs/dotenv-conformance.md](docs/dotenv-conformance.md).
 
 ## Contributing and security
