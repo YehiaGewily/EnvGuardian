@@ -37,6 +37,11 @@ func gitInitRepo(t *testing.T) string {
 		{"config", "user.email", "test@example.com"},
 		{"config", "user.name", "test"},
 		{"config", "commit.gpgsign", "false"},
+		// Git may otherwise start background maintenance after a commit. That
+		// process can outlive the test briefly and race with t.TempDir cleanup.
+		{"config", "gc.auto", "0"},
+		{"config", "gc.autoDetach", "false"},
+		{"config", "maintenance.auto", "false"},
 	} {
 		c := exec.Command("git", args...)
 		c.Dir = dir
