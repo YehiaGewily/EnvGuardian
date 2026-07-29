@@ -182,9 +182,9 @@ func installDiffDriver(cmd *cobra.Command, flags *globalFlags) error {
 	// installed it. A missing value is the expected clean state.
 	unset := exec.Command("git", "config", "--local", "--unset-all", "diff.envguardian.textconv") // #nosec G204 -- fixed command
 	unset.Dir = root
-	if out, unsetErr := unset.CombinedOutput(); unsetErr != nil {
+	if _, unsetErr := unset.CombinedOutput(); unsetErr != nil {
 		if exitErr, ok := unsetErr.(*exec.ExitError); !ok || exitErr.ExitCode() != 5 {
-			return fmt.Errorf("remove obsolete diff textconv setting: %w: %s", unsetErr, strings.TrimSpace(string(out)))
+			return fmt.Errorf("remove obsolete diff textconv setting: %w", unsetErr)
 		}
 	}
 

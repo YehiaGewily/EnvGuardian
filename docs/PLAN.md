@@ -23,9 +23,10 @@ not a demo.
 6. CI cannot prove an uncommitted local `.env` is current. `check` verifies
    repository integrity; `check-local` verifies developer synchronization. They
    are separate commands and separate jobs.
-7. **age gives confidentiality, not sender authentication.** Until Stage D,
-   any party who can open a pull request can produce ciphertext that decrypts
-   for every recipient. This shapes Stages A and D.
+7. **age gives confidentiality, not sender authentication.** Any party who can
+   open a pull request can produce ciphertext that decrypts for every
+   recipient. Stage D therefore adds separate detached SSH signatures; age
+   decryption itself never becomes proof of authorship.
 8. Documentation honesty is a release gate. A false README claim is treated as
    a bug of the same severity as the code it misdescribes.
 9. `v0.1.1` supports one file pair. Multi-file support returns in `v0.2.0` on
@@ -59,8 +60,9 @@ Both halves are same-day work and precede code hardening.
 - [ ] Block force pushes and branch deletion.
 - [ ] Require signed commits. This is load-bearing for Phase 2.
 - [x] Add `.github/CODEOWNERS` for `.envguardian/**`, `*.age`,
-  `.gitattributes`, `.github/workflows/**`, `internal/crypt/**`,
-  `internal/keys/**`, and `internal/cli/hooks.go`.
+  `*.age.sig`, `.gitattributes`, `.github/workflows/**`,
+  `internal/crypt/**`, `internal/authenticity/**`, `internal/keys/**`, and
+  `internal/cli/hooks.go`.
 
 The unchecked items are remote GitHub settings and are not satisfied by files
 in this repository. Complete and verify them before declaring Phase 0 done.
@@ -133,8 +135,9 @@ outside the repository or inside `.git/`.
   potentially modified working tree.
 - [x] Test changed config, changed ciphertext, unchanged silent success, and
   explicit acceptance/state update.
-- [x] Document the temporary boundary and the remaining Stage D authenticity
-  requirement in `docs/threat-model.md`.
+- [x] Document the temporary acceptance boundary in `docs/threat-model.md`,
+  which now also records how Stage D detached signatures authenticate artifacts
+  without authenticating age decryption itself.
 
 **Done:** checking out a commit with changed managed inputs cannot modify local
 plaintext without explicit acceptance.
@@ -196,7 +199,8 @@ unchanged under ordinary process errors.
 - [x] Preserve `os.ErrNotExist` through wrapping so hooks can distinguish an
   uninitialized repository.
 - [x] Enforce exit codes: 0 success, 1 out of sync/conflict, 2 identity or
-  decryption failure, and 3 malformed config or dotenv.
+  decryption failure, 3 malformed config or dotenv, and 4 ciphertext signature
+  failure.
 - [x] Delete the unused `--no-color` flag and implement secret-safe
   `--verbose` progress.
 - [x] Support `--json` only for `check` and `list-recipients`; reject it on
@@ -230,8 +234,9 @@ or content check was skipped; local synchronization has its own command.
 
 ### Phase 7 — Rebuild pre-commit around the index
 
-- [x] Read staged config, recipients, lock, and ciphertext with exact Git-index
-  blob commands and parse changed paths as NUL-delimited output.
+- [x] Read staged config, recipients, lock, ciphertext, and detached signature
+  with exact Git-index blob commands and parse changed paths as NUL-delimited
+  output.
 - [x] Treat every Git subprocess error as a verification failure.
 - [x] Reject configured plaintext present in the index, including force-added
   files and plaintext staged while removing EnvGuardian configuration.
@@ -261,5 +266,81 @@ potentially different working tree.
 
 **Done:** Git diffs surface value-only changes by key name without revealing
 values or other plaintext derivatives.
+
+## Stage D — Authenticity
+
+### Phase 9 — Sign the ciphertext
+
+- [x] Record the mechanism first in
+  [ADR 0008](adr/0008-ssh-signatures-for-ciphertext-authenticity.md): OpenSSH
+  signatures reuse recipient SSH keys and delegate cryptography to
+  `ssh-keygen -Y sign/verify`.
+- [x] Generate `.env.age.sig` alongside ciphertext and include it in the
+  rollback-capable seal/recipient transaction before lock is written last.
+- [x] Sign a versioned, domain-separated public payload binding the exact
+  ciphertext SHA-256, recipient fingerprint, config path, plaintext mapping,
+  and ciphertext mapping.
+- [x] Make `check`, manual decrypt, pre-commit, and exact-commit automatic
+  decryption verify present signatures against current SSH recipients before
+  any plaintext write.
+- [x] Add `authenticity.SignatureError` and dedicated exit code 4.
+- [x] Warn on missing signatures during v0.1.x migration; document that v0.2
+  changes this to a failure.
+- [x] Test non-recipient and revoked signers, different ciphertext and mapping
+  bindings, missing-signature migration, exact hook snapshots, idempotency,
+  transaction preservation, and secret-safe failures.
+
+**Done:** successful age decryption is no longer the only evidence attached to
+a ciphertext; a present detached signature proves it was sealed by a current
+SSH recipient for this exact repository mapping.
+
+## Stage E — Hygiene
+
+### Phase 10 — Secret-safe diagnostics
+
+- [x] Remove malformed dotenv fragments and invalid leading bytes from parser
+  errors; report the line, column, and error category only.
+- [x] Render identity and age decryption failures through stable safe
+  categories instead of upstream parser text.
+- [x] Stop echoing repository-controlled Git subprocess output in errors.
+- [x] Add sentinel tests across dotenv, identity, crypt, diff, hooks, check,
+  automatic decryption, signatures, and complete CLI output streams.
+- [x] Keep key names available for useful comparisons while never emitting
+  values or value derivatives.
+
+**Done:** malformed plaintext, private-key input, and upstream parser text do
+not reach user-visible output.
+
+### Phase 11 — Atomic writes everywhere
+
+- [x] Route `.gitignore`, `.gitattributes`, hook installation, and all other
+  production writes through `internal/atomic`.
+- [x] Apply final file permissions before syncing content and metadata, clean
+  temporary files on failures, and fsync the parent after rename.
+- [x] Preserve the permission mode of existing hook files.
+- [x] Document prominently that `0600` does not install a restrictive Windows
+  ACL and that the Windows build is not yet suitable for real secrets.
+- [x] Add a repository test that rejects direct production `os.WriteFile`.
+
+**Done:** every production write uses the single atomic-write boundary, with
+the remaining Windows ACL limitation stated instead of hidden.
+
+### Phase 12 — Tests and coverage gates
+
+- [x] Raise `crypt` to 85.1%, `config` to 86.2%, `keys` to 85.6%, and keep
+  `dotenv` at 90.8%; raise honest whole-repository statement coverage to 80.5%.
+- [x] Add a checked-in coverage gate enforcing package floors and 80% overall,
+  and upload the aggregate profile from CI.
+- [x] Run the pinned godotenv v1.5.1 differential suite as an explicit CI job
+  instead of leaving it outside CI.
+- [x] Pin every GitHub Action reference to a verified commit SHA.
+- [x] Add `go mod tidy -diff` and pinned GoReleaser configuration validation.
+- [x] Keep path-containment and staged-Git integration tests in the existing
+  Unix, macOS, and Windows matrix.
+- [x] Narrow automated conformance claims to godotenv; Python, Node, and Docker
+  remain clearly labeled non-authoritative manual background notes.
+
+**Done:** local validation passes the same package and aggregate coverage
+floors now encoded in CI, and verification dependencies are immutable.
 
 Later stage checklists will be added under user direction.

@@ -36,12 +36,21 @@ protect and users need an unambiguous warning. The tracked remediation is in
 
 ## Security boundary
 
+### Windows plaintext permissions
+
+Atomic replacement works on Windows, but the `0600` mode used for plaintext is
+only a Unix permission guarantee. EnvGuardian does not yet install or verify a
+restrictive Windows DACL; access is inherited from the destination directory.
+Until native ACL enforcement is implemented, the Windows build must not be
+treated as providing per-user plaintext-file isolation and must not be used for
+real secrets.
+
 age encrypts to recipients, but it does not authenticate the sender. Successful
 decryption proves neither who created a ciphertext nor that it came from a
-trusted commit. Development hooks now require explicit acceptance when managed
-inputs change and report local commit-signature status, but this is not
-ciphertext provenance. Provenance remains a separate Stage D requirement. See
-[docs/threat-model.md](docs/threat-model.md).
+trusted commit. Development code after Stage D separately verifies a detached
+OpenSSH signature over the ciphertext and mapping against current SSH
+recipients. Missing signatures remain a warning during the v0.1.x migration
+and become a failure in v0.2. See [docs/threat-model.md](docs/threat-model.md).
 
 Removing a recipient only prevents access to future ciphertext. It cannot
 remove access to historical ciphertext in git; affected credentials must be

@@ -23,17 +23,17 @@ func setupTrustedRepo(t *testing.T, content string) trustedRepo {
 	bin := buildBinary(t)
 	idPath := filepath.Join(repo, "id.txt")
 	writeAgeID(t, idPath)
-	if out, code := run(t, repo, bin, "init", "--identity", idPath, "--name", "alice"); code != 0 {
+	if out, _, code := runCLIInDir(t, repo, "init", "--identity", idPath, "--name", "alice"); code != 0 {
 		t.Fatalf("init: %d\n%s", code, out)
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, code := run(t, repo, bin, "encrypt", "--identity", idPath); code != 0 {
+	if out, _, code := runCLIInDir(t, repo, "encrypt", "--identity", idPath); code != 0 {
 		t.Fatalf("encrypt: %d\n%s", code, out)
 	}
 	for _, args := range [][]string{
-		{"add", ".envguardian", ".env.age", ".gitignore"},
+		{"add", ".envguardian", ".env.age", ".env.age.sig", ".gitignore"},
 		{"commit", "-m", "trusted baseline"},
 	} {
 		if out, code := run(t, repo, "git", args...); code != 0 {
@@ -42,7 +42,7 @@ func setupTrustedRepo(t *testing.T, content string) trustedRepo {
 	}
 	branch, _ := run(t, repo, "git", "branch", "--show-current")
 	commit, _ := run(t, repo, "git", "rev-parse", "HEAD")
-	if out, code := run(t, repo, bin, "decrypt", "--identity", idPath, "--accept-changes"); code != 0 {
+	if out, _, code := runCLIInDir(t, repo, "decrypt", "--identity", idPath, "--accept-changes"); code != 0 {
 		t.Fatalf("establish trust: %d\n%s", code, out)
 	}
 	return trustedRepo{
@@ -56,7 +56,8 @@ func TestAutoDecryptUnchangedIsSilentAndRestoresPlaintext(t *testing.T) {
 	if err := os.Remove(filepath.Join(fixture.repo, ".env")); err != nil {
 		t.Fatal(err)
 	}
-	out, code := run(t, fixture.repo, fixture.bin, "hook-auto-decrypt", "--identity", fixture.identity)
+	out, stderr, code := runCLIInDir(t, fixture.repo, "hook-auto-decrypt", "--identity", fixture.identity)
+	out += stderr
 	if code != 0 {
 		t.Fatalf("unchanged auto-decrypt: %d\n%s", code, out)
 	}
@@ -123,10 +124,10 @@ func TestCiphertextChangeRequiresAcceptanceAndReportsKeyNames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.repo, ".env"), []byte("DATABASE_URL="+secretValue+"\nNEW_KEY=hidden-value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, code := run(t, fixture.repo, fixture.bin, "encrypt", "--identity", fixture.identity); code != 0 {
+	if out, _, code := runCLIInDir(t, fixture.repo, "encrypt", "--identity", fixture.identity); code != 0 {
 		t.Fatalf("encrypt changed payload: %d\n%s", code, out)
 	}
-	if out, code := run(t, fixture.repo, "git", "add", ".env.age", ".envguardian/lock.toml"); code != 0 {
+	if out, code := run(t, fixture.repo, "git", "add", ".env.age", ".env.age.sig", ".envguardian/lock.toml"); code != 0 {
 		t.Fatalf("stage ciphertext: %d\n%s", code, out)
 	}
 	if out, code := run(t, fixture.repo, "git", "commit", "-m", "change encrypted config"); code != 0 {
@@ -137,7 +138,8 @@ func TestCiphertextChangeRequiresAcceptanceAndReportsKeyNames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, code := run(t, fixture.repo, fixture.bin, "hook-auto-decrypt", "--identity", fixture.identity)
+	out, stderr, code := runCLIInDir(t, fixture.repo, "hook-auto-decrypt", "--identity", fixture.identity)
+	out += stderr
 	if code == 0 {
 		t.Fatalf("changed ciphertext auto-decrypted without acceptance:\n%s", out)
 	}
@@ -156,7 +158,7 @@ func TestCiphertextChangeRequiresAcceptanceAndReportsKeyNames(t *testing.T) {
 		t.Fatalf("blocked hook modified plaintext: %q", got)
 	}
 
-	if out, code := run(t, fixture.repo, fixture.bin, "decrypt", "--identity", fixture.identity, "--accept-changes"); code != 0 {
+	if out, _, code := runCLIInDir(t, fixture.repo, "decrypt", "--identity", fixture.identity, "--accept-changes"); code != 0 {
 		t.Fatalf("accept changes: %d\n%s", code, out)
 	}
 	got, _ = os.ReadFile(filepath.Join(fixture.repo, ".env"))
@@ -178,10 +180,10 @@ func TestRecipientChangeReportsNamesAndDoesNotWrite(t *testing.T) {
 		t.Fatalf("create branch: %d\n%s", code, out)
 	}
 	bobKey := writeAgeID(t, filepath.Join(fixture.repo, "bob-id.txt"))
-	if out, code := run(t, fixture.repo, fixture.bin, "add-recipient", "--identity", fixture.identity, "--key", bobKey, "--name", "bob"); code != 0 {
+	if out, _, code := runCLIInDir(t, fixture.repo, "add-recipient", "--identity", fixture.identity, "--key", bobKey, "--name", "bob"); code != 0 {
 		t.Fatalf("add recipient: %d\n%s", code, out)
 	}
-	if out, code := run(t, fixture.repo, "git", "add", ".envguardian/recipients.toml", ".envguardian/lock.toml", ".env.age"); code != 0 {
+	if out, code := run(t, fixture.repo, "git", "add", ".envguardian/recipients.toml", ".envguardian/lock.toml", ".env.age", ".env.age.sig"); code != 0 {
 		t.Fatalf("stage recipient change: %d\n%s", code, out)
 	}
 	if out, code := run(t, fixture.repo, "git", "commit", "-m", "add bob"); code != 0 {
@@ -190,7 +192,8 @@ func TestRecipientChangeReportsNamesAndDoesNotWrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.repo, ".env"), []byte("SAFE=sentinel\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, code := run(t, fixture.repo, fixture.bin, "hook-auto-decrypt", "--identity", fixture.identity)
+	out, stderr, code := runCLIInDir(t, fixture.repo, "hook-auto-decrypt", "--identity", fixture.identity)
+	out += stderr
 	if code == 0 {
 		t.Fatalf("recipient change auto-decrypted without acceptance:\n%s", out)
 	}
@@ -200,5 +203,59 @@ func TestRecipientChangeReportsNamesAndDoesNotWrite(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(fixture.repo, ".env"))
 	if string(got) != "SAFE=sentinel\n" {
 		t.Fatalf("blocked recipient change modified plaintext: %q", got)
+	}
+}
+
+func TestAcceptChangesRejectsBadSignatureWithoutWriting(t *testing.T) {
+	fixture := setupTrustedRepo(t, "SAFE=original\n")
+	if err := os.WriteFile(filepath.Join(fixture.repo, ".env.age.sig"), []byte("bad signature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := run(t, fixture.repo, "git", "add", ".env.age.sig"); code != 0 {
+		t.Fatalf("stage signature: %d\n%s", code, out)
+	}
+	if out, code := run(t, fixture.repo, "git", "commit", "-m", "bad signature"); code != 0 {
+		t.Fatalf("commit signature: %d\n%s", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.repo, ".env"), []byte("SAFE=sentinel\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, stderr, code := runCLIInDir(t, fixture.repo, "decrypt", "--identity", fixture.identity, "--accept-changes")
+	out += stderr
+	if code != exitSignature || !strings.Contains(out, "ciphertext signature error") {
+		t.Fatalf("bad signature acceptance exit=%d\n%s", code, out)
+	}
+	got, err := os.ReadFile(filepath.Join(fixture.repo, ".env"))
+	if err != nil || string(got) != "SAFE=sentinel\n" {
+		t.Fatalf("bad signature modified plaintext: %q, %v", got, err)
+	}
+}
+
+func TestAcceptChangesAllowsMissingSignatureWithMigrationWarning(t *testing.T) {
+	fixture := setupTrustedRepo(t, "SAFE=original\n")
+	if out, code := run(t, fixture.repo, "git", "rm", ".env.age.sig"); code != 0 {
+		t.Fatalf("remove signature: %d\n%s", code, out)
+	}
+	if out, code := run(t, fixture.repo, "git", "commit", "-m", "unsigned migration fixture"); code != 0 {
+		t.Fatalf("commit unsigned fixture: %d\n%s", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.repo, ".env"), []byte("SAFE=sentinel\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, stderr, code := runCLIInDir(t, fixture.repo, "decrypt", "--identity", fixture.identity, "--accept-changes")
+	out += stderr
+	if code != exitOK || !strings.Contains(out, unsignedMigrationWarning) {
+		t.Fatalf("unsigned migration acceptance exit=%d\n%s", code, out)
+	}
+	got, err := os.ReadFile(filepath.Join(fixture.repo, ".env"))
+	if err != nil || string(got) != "SAFE=original\n" {
+		t.Fatalf("unsigned migration did not decrypt: %q, %v", got, err)
+	}
+}
+
+func TestGitBlobFailsClosedOnGitError(t *testing.T) {
+	repo := gitInitRepo(t)
+	if _, err := gitBlob(repo, "not-a-commit", ".env.age"); err == nil {
+		t.Fatal("gitBlob treated a Git subprocess failure as a missing file")
 	}
 }

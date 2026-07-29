@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/YehiaGewily/envguardian/internal/atomic"
+	"github.com/YehiaGewily/envguardian/internal/authenticity"
 	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
@@ -196,7 +199,13 @@ func uninstallHook(path string) (bool, error) {
 }
 
 func writeExecutable(path, content string) error {
-	if err := os.WriteFile(path, []byte(content), 0o750); err != nil { //nolint:gosec // hook must be executable
+	mode := os.FileMode(0o750)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect hook permissions %s: %w", path, err)
+	}
+	if err := atomic.WriteFile(path, []byte(content), mode); err != nil {
 		return fmt.Errorf("write hook %s: %w", path, err)
 	}
 	return nil
@@ -241,12 +250,13 @@ func gitOutput(dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// gitRun runs a git command and returns an error with git's output on failure.
+// gitRun runs a git command. Repository-controlled Git output is deliberately
+// omitted from errors because it is not a trusted diagnostic channel.
 func gitRun(dir string, args ...string) error {
 	cmd := exec.Command("git", args...) // #nosec G204 -- fixed binary, literal args
 	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return nil
 }
@@ -259,10 +269,6 @@ func gitBytes(dir string, args ...string) ([]byte, error) {
 	out, err := cmd.Output()
 	if err == nil {
 		return out, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 }
@@ -283,13 +289,13 @@ func newHookPreCommitCmd(flags *globalFlags) *cobra.Command {
 		Use:    "hook-pre-commit",
 		Hidden: true,
 		Args:   cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runHookPreCommit(flags)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runHookPreCommit(flags, cmd.ErrOrStderr())
 		},
 	}
 }
 
-func runHookPreCommit(flags *globalFlags) error {
+func runHookPreCommit(flags *globalFlags, stderr io.Writer) error {
 	p, err := secureRootPaths(flags)
 	if err != nil {
 		return err
@@ -377,6 +383,7 @@ func runHookPreCommit(flags *globalFlags) error {
 
 	var ciphertexts []crypt.LockBlobTarget
 	ciphertextData := make(map[string][]byte, len(cfg.Files))
+	signatureBlobs := make(map[string]gitBlobResult, len(cfg.Files))
 	for _, fp := range cfg.Files {
 		data, exists, blobErr := indexBlob(root, filepath.ToSlash(fp.Ciphertext))
 		if blobErr != nil || !exists {
@@ -387,14 +394,36 @@ func runHookPreCommit(flags *globalFlags) error {
 		}
 		ciphertexts = append(ciphertexts, crypt.LockBlobTarget{Ciphertext: fp.Ciphertext, Data: data})
 		ciphertextData[fp.Ciphertext] = data
+
+		signatureRel := authenticity.SignatureName(fp.Ciphertext)
+		signature, signatureExists, signatureErr := indexBlob(root, signatureRel)
+		if signatureErr != nil {
+			return withExit(exitConfig, signatureErr)
+		}
+		signatureBlobs[fp.Ciphertext] = gitBlobResult{Data: signature, Exists: signatureExists}
 	}
 	if err := crypt.VerifyLockBytes(lockData, ciphertexts, rf.Fingerprint()); err != nil {
 		return withExit(exitOutOfSync, fmt.Errorf("staged lock verification failed: %w", err))
+	}
+	for _, fp := range cfg.Files {
+		signature := signatureBlobs[fp.Ciphertext]
+		if !signature.Exists {
+			fmt.Fprintf(stderr, "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
+			continue
+		}
+		binding := authenticity.Binding{
+			RecipientsFingerprint: rf.Fingerprint(), ConfigPath: configRel,
+			PlaintextPath: fp.Plaintext, CiphertextPath: fp.Ciphertext,
+		}
+		if _, signatureErr := authenticity.Verify(signature.Data, rf, binding, ciphertextData[fp.Ciphertext]); signatureErr != nil {
+			return signatureErr
+		}
 	}
 
 	managed := map[string]bool{configRel: true, filepath.ToSlash(recipientsRel): true, filepath.ToSlash(lockRel): true}
 	for _, fp := range cfg.Files {
 		managed[filepath.ToSlash(fp.Ciphertext)] = true
+		managed[authenticity.SignatureName(fp.Ciphertext)] = true
 	}
 	managedChanged := false
 	for path := range staged {
@@ -418,6 +447,18 @@ func runHookPreCommit(flags *globalFlags) error {
 		}
 		if !bytes.Equal(working, ciphertextData[fp.Ciphertext]) {
 			return withExit(exitOutOfSync, fmt.Errorf("working and staged ciphertext differ for %s; stage the complete ciphertext and lock together", fp.Ciphertext))
+		}
+		stagedSignature := signatureBlobs[fp.Ciphertext]
+		workingSignature, signatureReadErr := os.ReadFile(fp.SignaturePath) //nolint:gosec // validated derived signature path
+		switch {
+		case signatureReadErr == nil && !stagedSignature.Exists:
+			return withExit(exitOutOfSync, fmt.Errorf("working signature for %s is not staged; stage ciphertext, signature, and lock together", fp.Ciphertext))
+		case signatureReadErr == nil && !bytes.Equal(workingSignature, stagedSignature.Data):
+			return withExit(exitOutOfSync, fmt.Errorf("working and staged signature differ for %s; stage ciphertext, signature, and lock together", fp.Ciphertext))
+		case signatureReadErr != nil && !errors.Is(signatureReadErr, os.ErrNotExist):
+			return withExit(exitOutOfSync, fmt.Errorf("read working signature for %s: %w", fp.Ciphertext, signatureReadErr))
+		case errors.Is(signatureReadErr, os.ErrNotExist) && stagedSignature.Exists:
+			return withExit(exitOutOfSync, fmt.Errorf("staged signature for %s is missing from the working tree; restore or restage the complete transaction", fp.Ciphertext))
 		}
 		_, sealed, decryptErr := crypt.DecryptBytesToDotenv(id.Identities, ciphertextData[fp.Ciphertext])
 		if decryptErr != nil {
@@ -485,12 +526,12 @@ func indexBlob(root, path string) ([]byte, bool, error) {
 func headBlob(root, path string) ([]byte, bool, error) {
 	verify := exec.Command("git", "rev-parse", "--verify", "--quiet", "HEAD") // #nosec G204 -- fixed command
 	verify.Dir = root
-	if out, err := verify.CombinedOutput(); err != nil {
+	if _, err := verify.CombinedOutput(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return nil, false, nil // legitimate unborn repository
 		}
-		return nil, false, fmt.Errorf("git rev-parse --verify HEAD: %w: %s", err, strings.TrimSpace(string(out)))
+		return nil, false, fmt.Errorf("git rev-parse --verify HEAD: %w", err)
 	}
 	listed, err := gitBytes(root, "ls-tree", "-z", "--name-only", "HEAD", "--", path)
 	if err != nil {

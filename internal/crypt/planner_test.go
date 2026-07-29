@@ -224,3 +224,19 @@ func TestVerifyLockDetectsInterruptedCiphertextCommit(t *testing.T) {
 		t.Fatalf("VerifyLock error = %v, want digest mismatch", err)
 	}
 }
+
+func TestPlanningReadFailuresWriteNothing(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := PlanFile(dir, []byte("public metadata"), 0o644); err == nil {
+		t.Fatal("PlanFile accepted a directory as an existing file")
+	}
+	alice := newParty(t)
+	cipherPath := filepath.Join(dir, ".env.age")
+	cfg := Config{Fingerprint: fingerprintOf(alice)}
+	if _, err := PlanSeal(cfg, recipientsOf(alice), dir, cipherPath, ".env.age"); err == nil {
+		t.Fatal("PlanSeal accepted a directory as plaintext")
+	}
+	if _, err := os.Stat(cipherPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("planning failure wrote ciphertext")
+	}
+}

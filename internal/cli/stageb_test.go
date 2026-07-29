@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 type repoSnapshot struct {
 	recipients []byte
 	ciphertext []byte
+	signature  []byte
 	lock       []byte
 }
 
@@ -27,6 +29,7 @@ func snapshotRecipientTransaction(t *testing.T, dir string) repoSnapshot {
 	return repoSnapshot{
 		recipients: read(".envguardian/recipients.toml"),
 		ciphertext: read(".env.age"),
+		signature:  read(".env.age.sig"),
 		lock:       read(".envguardian/lock.toml"),
 	}
 }
@@ -34,8 +37,8 @@ func snapshotRecipientTransaction(t *testing.T, dir string) repoSnapshot {
 func (want repoSnapshot) assertUnchanged(t *testing.T, dir string) {
 	t.Helper()
 	got := snapshotRecipientTransaction(t, dir)
-	if !bytes.Equal(want.recipients, got.recipients) || !bytes.Equal(want.ciphertext, got.ciphertext) || !bytes.Equal(want.lock, got.lock) {
-		t.Fatal("failed recipient operation modified recipients, ciphertext, or lock")
+	if !bytes.Equal(want.recipients, got.recipients) || !bytes.Equal(want.ciphertext, got.ciphertext) || !bytes.Equal(want.signature, got.signature) || !bytes.Equal(want.lock, got.lock) {
+		t.Fatal("failed recipient operation modified recipients, ciphertext, signature, or lock")
 	}
 }
 
@@ -192,7 +195,7 @@ func TestMalformedDotenvAndConfigUseExitCodeThree(t *testing.T) {
 func TestPreCommitWithoutConfigDoesNothing(t *testing.T) {
 	dir := gitInitRepo(t)
 	t.Chdir(dir)
-	if err := runHookPreCommit(&globalFlags{}); err != nil {
+	if err := runHookPreCommit(&globalFlags{}, io.Discard); err != nil {
 		t.Fatalf("pre-commit without config = %v, want nil", err)
 	}
 }
@@ -200,7 +203,7 @@ func TestPreCommitWithoutConfigDoesNothing(t *testing.T) {
 func TestPreCommitGitFailureFailsClosed(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := runHookPreCommit(&globalFlags{}); err == nil {
+	if err := runHookPreCommit(&globalFlags{}, io.Discard); err == nil {
 		t.Fatal("pre-commit outside a Git repository succeeded; want fail-closed error")
 	}
 }

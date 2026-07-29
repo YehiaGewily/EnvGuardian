@@ -28,9 +28,10 @@ go run ./cmd/envguardian version
 
 Do not install hooks from `v0.1.0`. Development code for `v0.1.1` now contains
 the Stage A path-containment and explicit-acceptance controls, the Stage B
-transactional sealing core, and the Stage C fail-closed verification paths,
-but the project remains unsupported until the remaining release gates are
-complete.
+transactional sealing core, the Stage C fail-closed verification paths, Stage D
+detached SSH signatures, and Stage E secret-safe/atomic hygiene and coverage
+gates. The project remains unsupported until final release verification and
+repository protection are complete.
 
 ## Current implementation status
 
@@ -52,30 +53,42 @@ presence does not mean they are ready to protect real secrets:
 - `lock.toml` version 2 has exactly one entry per configured ciphertext and
   binds the recipient fingerprint to that ciphertext's SHA-256 digest. The
   digest covers already-public ciphertext, never plaintext.
-- `add-recipient` plans before writing and commits ciphertext, recipients, and
-  lock as one rollback-capable logical transaction. Missing local plaintext is
-  recovered in memory from the existing ciphertext.
+- `add-recipient` plans before writing and commits ciphertext, detached
+  signature, recipients, and lock as one rollback-capable logical transaction.
+  Missing local plaintext is recovered in memory from the existing ciphertext.
+- Every new or replaced ciphertext gets a sibling `.sig` made through
+  `ssh-keygen -Y sign`. The signature binds the ciphertext digest, recipient
+  fingerprint, config path, and complete file mapping. Verification accepts
+  only a current SSH recipient. Sealing therefore requires an SSH private-key
+  file; age-only identities can still decrypt.
 - `check` verifies committed repository integrity: config and paths,
-  recipients, lock digest/fingerprint, ciphertext decryption and dotenv
-  validity, gitignore state, and the rotation ledger. It requires an identity;
+  recipients, lock digest/fingerprint, ciphertext signature, ciphertext
+  decryption and dotenv validity, gitignore state, and the rotation ledger. It requires an identity;
   `--structural-only` is the explicit fork-PR mode when CI secrets are absent.
   It deliberately does not compare uncommitted local plaintext because CI
   cannot observe a developer's `.env`.
 - `check-local` compares the developer's plaintext with decryptable ciphertext
   and fails on a missing plaintext unless `--allow-missing` is explicit.
 - Automatic hooks compare the exact incoming commit with a local accepted
-  commit. Changes to config, recipients, or ciphertext require an explicit
-  `decrypt --accept-changes`; hook decryption reads committed blobs rather than
-  unreviewed working-tree paths.
-- The pre-commit hook verifies config, recipients, lock, and ciphertext from
-  the Git index, rejects staged plaintext, detects partial staging, and requires
-  an identity when managed state changes. Commits touching no managed file run
-  structural verification only.
+  commit. Changes to config, recipients, ciphertext, or signature require an
+  explicit `decrypt --accept-changes`; hook decryption reads and authenticates
+  committed blobs rather than unreviewed working-tree paths.
+- The pre-commit hook verifies config, recipients, lock, ciphertext, and
+  detached signature from the Git index, rejects staged plaintext, detects
+  partial staging, and requires an identity when managed state changes. Commits
+  touching no managed file run structural verification only.
 - `diff --install` registers a repository-local, two-sided external Git diff
   driver. It reports `+ KEY`, `- KEY`, and `~ KEY`; comments and reordering are
   ignored, and values or other plaintext derivatives are never emitted.
-- age provides confidentiality, not sender authentication. Ciphertext
-  provenance remains unverified until Stage D.
+- User-visible parser, identity, age, SSH, and Git diagnostics omit secret
+  input and untrusted upstream output. All production file writes use the
+  atomic writer, and CI enforces `crypt`, `config`, `keys`, and `dotenv` at 85%
+  plus 80% whole-repository statement coverage.
+- age still provides confidentiality, not sender authentication. EnvGuardian's
+  separate detached SSH signature establishes ciphertext authorship. During
+  the v0.1.x migration, a missing signature is a visible warning; any present
+  invalid or non-recipient signature fails closed. Missing signatures become a
+  failure in v0.2.
 - Revocation, rotation commands, and the merge driver are not implemented.
 
 The authoritative status and sequencing are in [docs/PLAN.md](docs/PLAN.md).
@@ -83,11 +96,16 @@ The old M0/M1/M2/M3 plan is historical; M3 is unimplemented.
 
 ## Threat model
 
+> **Windows permission limitation:** EnvGuardian writes plaintext atomically,
+> but Go's `0600` mode has no Windows ACL equivalent. The current development
+> build does not install or verify a restrictive DACL, so other local accounts
+> may retain access through inherited directory permissions. Do not use
+> EnvGuardian for real secrets on Windows until native ACL enforcement lands.
+
 The intended confidentiality property is narrow: repository read access alone
 does not reveal plaintext without a recipient identity, assuming age itself is
 used correctly. See the full [threat model](docs/threat-model.md), including the
-temporary automatic-decryption acceptance boundary and the remaining Stage D
-authenticity gap.
+automatic-decryption acceptance boundary and detached-signature trust model.
 
 EnvGuardian does not protect against:
 
@@ -99,7 +117,9 @@ EnvGuardian does not protect against:
   both live on disk.
 - **A malicious contributor.** age does not authenticate the ciphertext
   sender. A contributor can create ciphertext that decrypts for every listed
-  recipient unless a separate provenance mechanism verifies it.
+  recipient, but cannot create a valid EnvGuardian signature without a current
+  recipient's SSH private key. Unsigned v0.1.x migration artifacts remain
+  visibly weaker and still depend on explicit review/acceptance.
 - **A malicious repository configuration in `v0.1.0`.** Automatic decryption
   can write outside the repository; see the advisory in
   [SECURITY.md](SECURITY.md).

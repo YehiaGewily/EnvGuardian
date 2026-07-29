@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -42,8 +43,25 @@ func runDecrypt(cmd *cobra.Command, flags *globalFlags, acceptChanges bool) erro
 	}
 
 	ccfg := crypt.Config{Identities: id.Identities, Label: id.Label}
+	rf, err := loadRecipients(p)
+	if err != nil {
+		return err
+	}
 	out := cmd.OutOrStdout()
 	for _, fp := range cfg.Files {
+		ciphertext, readErr := os.ReadFile(fp.CiphertextPath) //nolint:gosec // validated managed ciphertext path
+		if readErr != nil {
+			return fmt.Errorf("read ciphertext %s: %w", fp.Ciphertext, readErr)
+		}
+		signer, missing, verifyErr := verifyCiphertextSignature(p, fp, rf, ciphertext)
+		if verifyErr != nil {
+			return verifyErr
+		}
+		if missing {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
+		} else if flags.verbose {
+			fmt.Fprintf(cmd.ErrOrStderr(), "envguardian: verbose: signature for %s verified as recipient %q\n", fp.Ciphertext, signer)
+		}
 		if err := crypt.Open(ccfg, fp.CiphertextPath, fp.PlaintextPath); err != nil {
 			return err // ErrNotARecipient → exit 2
 		}

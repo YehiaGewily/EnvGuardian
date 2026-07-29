@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +42,32 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	return out.String(), errBuf.String(), exitOK
 }
 
+// runCLIInDir exercises the real Cobra command tree while keeping coverage in
+// this test process. Tests that need Git to execute an installed hook still use
+// the separately built binary.
+func runCLIInDir(t *testing.T, dir string, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore test working directory: %v", err)
+		}
+	}()
+	return runCLI(t, args...)
+}
+
+func runCLICombinedInDir(t *testing.T, dir string, args ...string) (string, int) {
+	t.Helper()
+	stdout, stderr, code := runCLIInDir(t, dir, args...)
+	return stdout + stderr, code
+}
+
 func assertGolden(t *testing.T, name, got string) {
 	t.Helper()
 	path := filepath.Join(pkgDir, "testdata", "golden", name)
@@ -65,14 +93,18 @@ func assertGolden(t *testing.T, name, got string) {
 
 func writeAgeID(t *testing.T, path string) (recipient string) {
 	t.Helper()
-	id, err := age.GenerateX25519Identity()
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen is required for Stage D CLI tests")
+	}
+	cmd := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path) // #nosec G204 -- test-owned path
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generate SSH test identity: %v\n%s", err, output)
+	}
+	publicKey, err := os.ReadFile(path + ".pub")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(id.String()+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return id.Recipient().String()
+	return strings.TrimSpace(string(publicKey))
 }
 
 // pinDate fixes nowDate for the duration of a test.
@@ -148,6 +180,44 @@ func TestInitRejectsEscapingFileBeforeWriting(t *testing.T) {
 	}
 }
 
+func TestCLIStreamsNeverExposeMalformedSecretInput(t *testing.T) {
+	const sentinel = "SENTINEL-SECRET-VALUE-DO-NOT-PRINT"
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := filepath.Join(dir, "id.txt")
+	writeAgeID(t, idPath)
+	if _, stderr, code := runCLI(t, "init", "--identity", idPath, "--name", "alice"); code != exitOK {
+		t.Fatalf("init failed: %s", stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(`TOKEN="safe" `+sentinel+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI(t, "encrypt", "--identity", idPath)
+	if code != exitConfig {
+		t.Fatalf("malformed plaintext exit=%d, want %d", code, exitConfig)
+	}
+	if strings.Contains(stdout+stderr, sentinel) {
+		t.Fatal("CLI output exposed malformed plaintext value")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".env.age")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("malformed plaintext produced ciphertext")
+	}
+}
+
+func TestCLIStreamsNeverExposeInvalidIdentityMaterial(t *testing.T) {
+	const sentinel = "SENTINEL-PRIVATE-IDENTITY-MATERIAL-DO-NOT-PRINT"
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("ENVGUARDIAN_IDENTITY", sentinel)
+	stdout, stderr, code := runCLI(t, "init", "--name", "alice")
+	if code != exitIdentity {
+		t.Fatalf("invalid identity exit=%d, want %d", code, exitIdentity)
+	}
+	if strings.Contains(stdout+stderr, sentinel) {
+		t.Fatal("CLI output exposed invalid identity material")
+	}
+}
+
 func TestEncryptDecryptRoundTrip(t *testing.T) {
 	pinDate(t)
 	dir := t.TempDir()
@@ -168,10 +238,21 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 		t.Fatalf("encrypt exit = %d", code)
 	}
 	assertGolden(t, "encrypt.golden", out)
+	signatureBefore, err := os.ReadFile(".env.age.sig")
+	if err != nil {
+		t.Fatalf("signature was not written alongside ciphertext: %v", err)
+	}
 
 	// Second encrypt is idempotent.
 	out2, _, _ := runCLI(t, "encrypt", "--identity", idPath)
 	assertGolden(t, "encrypt_unchanged.golden", out2)
+	signatureAfter, err := os.ReadFile(".env.age.sig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(signatureBefore, signatureAfter) {
+		t.Fatal("unchanged encrypt rewrote the detached signature")
+	}
 
 	// Remove plaintext, then decrypt restores it.
 	if err := os.Remove(".env"); err != nil {
@@ -186,6 +267,35 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	got, _ := os.ReadFile(".env")
 	if string(got) != "API_KEY=secret\nDEBUG=true\n" {
 		t.Errorf("decrypted .env = %q", got)
+	}
+}
+
+func TestAgeOnlyIdentityCannotSealAuthenticatedCiphertext(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	ageIdentity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(dir, "age-identity.txt")
+	if err := os.WriteFile(identityPath, []byte(ageIdentity.String()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, code := runCLI(t, "init", "--identity", identityPath, "--name", "alice"); code != exitOK {
+		t.Fatal("init with age identity failed")
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("A=secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := runCLI(t, "encrypt", "--identity", identityPath)
+	if code != exitSignature || !strings.Contains(stderr, "requires an SSH private-key file") {
+		t.Fatalf("age-only seal exit=%d stderr=%s", code, stderr)
+	}
+	for _, path := range []string{".env.age", ".env.age.sig", ".envguardian/lock.toml"} {
+		if _, err := os.Stat(filepath.Join(dir, path)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("failed authenticated seal wrote %s: %v", path, err)
+		}
 	}
 }
 
@@ -250,7 +360,7 @@ func TestAddRecipientGolden(t *testing.T) {
 		t.Fatal("encrypt failed")
 	}
 
-	bobKey := writeAgeID(t, filepath.Join(dir, "bob.txt")) // reuse to get a valid age recipient
+	bobKey := writeAgeID(t, filepath.Join(dir, "bob.txt")) // reuse to get a valid recipient
 	out, _, code := runCLI(t, "add-recipient", "--identity", idPath, "--key", bobKey, "--name", "bob")
 	if code != exitOK {
 		t.Fatalf("add-recipient exit = %d", code)

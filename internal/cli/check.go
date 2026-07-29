@@ -22,6 +22,7 @@ type checkResult struct {
 	Name    string `json:"name"`
 	OK      bool   `json:"ok"`
 	Skipped bool   `json:"skipped,omitempty"`
+	Warning bool   `json:"warning,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 	Code    int    `json:"-"`
 }
@@ -126,6 +127,9 @@ func collectRepositoryChecks(p config.Paths, flags *globalFlags, structuralOnly 
 		} else {
 			results = append(results, checkResult{Name: "lock", OK: true, Detail: "digest and recipient fingerprint match"})
 		}
+		for _, fp := range cfg.Files {
+			results = append(results, checkCiphertextSignature(p, fp, rf))
+		}
 	}
 
 	if cfg != nil {
@@ -151,6 +155,22 @@ func collectRepositoryChecks(p config.Paths, flags *globalFlags, structuralOnly 
 		results = append(results, checkCiphertextContents(fp, id.Identities))
 	}
 	return results, cfg, nil
+}
+
+func checkCiphertextSignature(p config.Paths, fp config.FilePair, rf *keys.RecipientsFile) checkResult {
+	name := "signature " + fp.Ciphertext + ".sig"
+	ciphertext, err := os.ReadFile(fp.CiphertextPath) //nolint:gosec // validated managed ciphertext path
+	if err != nil {
+		return checkResult{Name: name, Detail: fmt.Sprintf("cannot read ciphertext for signature verification: %v", err)}
+	}
+	signer, missing, err := verifyCiphertextSignature(p, fp, rf, ciphertext)
+	if err != nil {
+		return checkResult{Name: name, Detail: err.Error(), Code: exitSignature}
+	}
+	if missing {
+		return checkResult{Name: name, OK: true, Warning: true, Detail: unsignedMigrationWarning}
+	}
+	return checkResult{Name: name, OK: true, Detail: fmt.Sprintf("valid; signed by current recipient %q", signer)}
 }
 
 func checkGitignore(root, plaintext string) checkResult {
@@ -275,6 +295,8 @@ func printCheckResults(cmd *cobra.Command, flags *globalFlags, results []checkRe
 		switch {
 		case result.Skipped:
 			tag = "SKIP"
+		case result.Warning:
+			tag = "WARN"
 		case !result.OK:
 			tag = "FAIL"
 		}
@@ -290,11 +312,18 @@ func printCheckResults(cmd *cobra.Command, flags *globalFlags, results []checkRe
 func checkFailure(results []checkResult) error {
 	failed := 0
 	code := exitOutOfSync
+	signatureFailure := false
+	nonSignatureFailure := false
 	for _, result := range results {
 		if !result.failed() {
 			continue
 		}
 		failed++
+		if result.Code == exitSignature {
+			signatureFailure = true
+			continue
+		}
+		nonSignatureFailure = true
 		if result.Code == exitIdentity {
 			code = exitIdentity
 		} else if result.Code == exitConfig && code != exitIdentity {
@@ -303,6 +332,9 @@ func checkFailure(results []checkResult) error {
 	}
 	if failed == 0 {
 		return nil
+	}
+	if signatureFailure && !nonSignatureFailure {
+		code = exitSignature
 	}
 	return withExit(code, fmt.Errorf("%d check(s) failed", failed))
 }

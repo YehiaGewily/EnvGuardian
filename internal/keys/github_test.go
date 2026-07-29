@@ -117,6 +117,12 @@ func TestFetchGitHubKeysInvalidUsername(t *testing.T) {
 	}
 }
 
+func TestFetchGitHubKeysPublicWrapperRejectsInvalidUsername(t *testing.T) {
+	if _, err := FetchGitHubKeys(context.Background(), "not a valid username"); err == nil {
+		t.Fatal("FetchGitHubKeys accepted an invalid username")
+	}
+}
+
 func TestFetchGitHubKeysRejectsOversizedAndMalformedResponses(t *testing.T) {
 	oversized, _ := stubClient(http.StatusOK, strings.Repeat("x", maxKeysResponse+1))
 	if _, err := fetchGitHubKeys(context.Background(), oversized, "octocat"); err == nil || !strings.Contains(err.Error(), "too large") {

@@ -65,6 +65,7 @@ type FilePair struct {
 	Ciphertext     string `toml:"ciphertext"`
 	PlaintextPath  string `toml:"-"`
 	CiphertextPath string `toml:"-"`
+	SignaturePath  string `toml:"-"`
 }
 
 // Config is the parsed config.toml.
@@ -133,6 +134,11 @@ func (c *Config) ValidateAndResolve(root string) error {
 		}
 		f.PlaintextPath = plain
 		f.CiphertextPath = cipher
+		signature, err := ResolveManagedPath(root, f.Ciphertext+".sig")
+		if err != nil {
+			return fmt.Errorf("file #%d signature derived from ciphertext %q: %w", i+1, f.Ciphertext, err)
+		}
+		f.SignaturePath = signature
 	}
 
 	for i := range c.Files {
@@ -149,6 +155,9 @@ func (c *Config) ValidateAndResolve(root string) error {
 		for j := range c.Files {
 			if sameManagedFile(c.Files[i].PlaintextPath, c.Files[j].CiphertextPath) {
 				return fmt.Errorf("plaintext %q and ciphertext %q resolve to the same file", c.Files[i].Plaintext, c.Files[j].Ciphertext)
+			}
+			if sameManagedFile(c.Files[i].PlaintextPath, c.Files[j].SignaturePath) {
+				return fmt.Errorf("plaintext %q and signature for ciphertext %q resolve to the same file", c.Files[i].Plaintext, c.Files[j].Ciphertext)
 			}
 		}
 	}

@@ -152,6 +152,24 @@ func TestErrors(t *testing.T) {
 	}
 }
 
+func TestParseErrorsNeverExposeValueText(t *testing.T) {
+	const sentinel = "SENTINEL-SECRET-VALUE-DO-NOT-PRINT"
+	inputs := []string{
+		`TOKEN="safe" ` + sentinel,
+		`TOKEN="` + sentinel,
+		`TOKEN='` + sentinel,
+	}
+	for i, input := range inputs {
+		_, err := Parse(strings.NewReader(input))
+		if err == nil {
+			t.Fatalf("case %d: expected malformed dotenv error", i)
+		}
+		if strings.Contains(err.Error(), sentinel) {
+			t.Fatalf("case %d: malformed dotenv error exposed value text", i)
+		}
+	}
+}
+
 func TestMultilinePEM(t *testing.T) {
 	f := readFixture(t, "pem.env")
 

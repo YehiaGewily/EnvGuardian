@@ -3,6 +3,8 @@ package keys
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -245,5 +247,48 @@ func TestRecipientNameForSigningKey(t *testing.T) {
 	}
 	if _, ok := file.RecipientNameForSigningKey("SHA256:not-a-recipient"); ok {
 		t.Fatal("non-recipient signing fingerprint matched")
+	}
+}
+
+func TestRecipientsParsingAndPersistenceFailures(t *testing.T) {
+	if _, err := ParseRecipients([]byte("[[recipient]\n")); err == nil {
+		t.Fatal("ParseRecipients accepted malformed TOML")
+	}
+	if _, err := ParseRecipients([]byte("unknown = true\n")); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown-field error = %v", err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	if _, err := LoadRecipients(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing recipients error = %v", err)
+	}
+
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Key: ageKey(t)}}}
+	path := filepath.Join(t.TempDir(), "recipients.toml")
+	if err := file.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := LoadRecipients(path)
+	if err != nil {
+		t.Fatalf("LoadRecipients: %v", err)
+	}
+	if len(loaded.Recipients) != 1 || loaded.Recipients[0].Name != "alice" {
+		t.Fatal("recipients persistence round trip changed the public recipient entry")
+	}
+}
+
+func TestRecipientNameForPublicKeyIgnoresSSHComment(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPublic, err := gossh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(sshPublic)))
+	file := &RecipientsFile{Recipients: []Recipient{{Name: "alice", Key: base + " laptop"}}}
+	if name, ok := file.RecipientNameForPublicKey(base + " workstation"); !ok || name != "alice" {
+		t.Fatalf("RecipientNameForPublicKey = %q, %v", name, ok)
 	}
 }

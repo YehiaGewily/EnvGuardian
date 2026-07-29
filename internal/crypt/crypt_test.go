@@ -272,3 +272,47 @@ func TestMergeSkewDetected(t *testing.T) {
 		t.Errorf("VerifyLock failed after re-encrypt: %v", err)
 	}
 }
+
+func TestDecryptDiagnosticsNeverExposeCiphertextOrPlaintext(t *testing.T) {
+	const sentinel = "SENTINEL-SECRET-VALUE-DO-NOT-PRINT"
+	p := newParty(t)
+
+	if _, _, err := DecryptBytesToDotenv([]age.Identity{p.id}, []byte(sentinel)); err == nil {
+		t.Fatal("expected malformed ciphertext error")
+	} else if strings.Contains(err.Error(), sentinel) {
+		t.Fatal("decryption diagnostic exposed ciphertext input")
+	}
+
+	ciphertext, err := encryptBytes([]byte(`TOKEN="safe" `+sentinel), []age.Recipient{p.rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := DecryptBytesToDotenv([]age.Identity{p.id}, ciphertext); err == nil {
+		t.Fatal("expected malformed dotenv error")
+	} else if strings.Contains(err.Error(), sentinel) {
+		t.Fatal("decryption diagnostic exposed plaintext value")
+	}
+}
+
+func TestSecretSafeErrorTypesAndSemanticComparison(t *testing.T) {
+	invalid := &InvalidPlaintextError{Path: ".env", Err: errors.New("SENTINEL")}
+	if strings.Contains(invalid.Error(), "SENTINEL") || !errors.Is(invalid, invalid.Err) {
+		t.Fatal("InvalidPlaintextError did not preserve safe rendering and unwrapping")
+	}
+	identity := (&IdentityRequiredError{CiphertextPath: ".env.age", Reason: "identity unavailable"}).Error()
+	divergence := (&DivergenceError{PlaintextPath: ".env", CiphertextPath: ".env.age"}).Error()
+	if !strings.Contains(identity, "cannot verify") || !strings.Contains(divergence, "refusing to replace") {
+		t.Fatal("planner error types omitted their safe remediation")
+	}
+
+	for _, pair := range [][2]string{
+		{"A=1\n", "A=1\nB=2\n"},
+		{"A=1\n", "B=1\n"},
+		{"A=1\n", "A=2\n"},
+		{"not dotenv", "A=1\n"},
+	} {
+		if sameContent([]byte(pair[0]), []byte(pair[1])) {
+			t.Fatal("different dotenv inputs compared equal")
+		}
+	}
+}

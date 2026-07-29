@@ -206,7 +206,7 @@ func parseEntry(lines []string, start int, vals map[string]string) (*Entry, bool
 	if !isKeyStart(rest[0]) {
 		return nil, false, start, &ParseError{
 			Line: lineNo,
-			Msg:  fmt.Sprintf("unexpected character %q at start of key", string(rest[0])),
+			Msg:  "invalid character at start of key",
 			Hint: "keys must start with a letter or underscore",
 		}
 	}
@@ -365,9 +365,10 @@ func trailing(line string, pos, lineNo int) (string, error) {
 	case t[0] == '#':
 		return strings.TrimSpace(t[1:]), nil
 	default:
+		column := pos + len(line[pos:]) - len(t) + 1
 		return "", &ParseError{
 			Line: lineNo,
-			Msg:  fmt.Sprintf("unexpected text after closing quote: %q", t),
+			Msg:  fmt.Sprintf("unexpected content after closing quote at column %d", column),
 			Hint: "wrap the whole value in quotes, or put a space before the # comment",
 		}
 	}

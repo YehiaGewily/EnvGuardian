@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/atomic"
+	"github.com/YehiaGewily/envguardian/internal/authenticity"
 	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
@@ -118,14 +119,24 @@ func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 		}
 		oldCipher, oldErr := gitBlob(root, trusted, cipherRel)
 		newCipher, newErr := gitBlob(root, current, cipherRel)
-		if oldErr == nil && newErr == nil && sameGitBlob(oldCipher, newCipher) {
+		cipherChanged := oldErr != nil || newErr != nil || !sameGitBlob(oldCipher, newCipher)
+		signatureRel := authenticity.SignatureName(fp.Ciphertext)
+		oldSignature, oldSignatureErr := gitBlob(root, trusted, signatureRel)
+		newSignature, newSignatureErr := gitBlob(root, current, signatureRel)
+		signatureChanged := oldSignatureErr != nil || newSignatureErr != nil || !sameGitBlob(oldSignature, newSignature)
+		if !cipherChanged && !signatureChanged {
 			continue
 		}
-		if identityErr != nil {
-			changes = append(changes, fmt.Sprintf("ciphertext %s changed; key names unavailable without a usable identity", fp.Ciphertext))
-			continue
+		if cipherChanged {
+			if identityErr != nil {
+				changes = append(changes, fmt.Sprintf("ciphertext %s changed; key names unavailable without a usable identity", fp.Ciphertext))
+			} else {
+				changes = append(changes, summarizeCiphertextChange(fp.Ciphertext, oldCipher, newCipher, id.Identities))
+			}
 		}
-		changes = append(changes, summarizeCiphertextChange(fp.Ciphertext, oldCipher, newCipher, id.Identities))
+		if signatureChanged {
+			changes = append(changes, fmt.Sprintf("ciphertext signature %s changed", signatureRel))
+		}
 	}
 
 	if len(changes) > 0 {
@@ -137,7 +148,7 @@ func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 	if err := ensureAutoDecryptStateIgnored(root); err != nil {
 		return err
 	}
-	if err := decryptCommitSnapshot(root, current, cfg, id, false, cmd); err != nil {
+	if err := decryptCommitSnapshot(root, current, p, cfg, id, false, cmd); err != nil {
 		return err
 	}
 	if err := saveAutoDecryptState(root, statePath, current); err != nil {
@@ -179,7 +190,7 @@ func runAcceptChanges(cmd *cobra.Command, flags *globalFlags) error {
 	if err := ensureAutoDecryptStateIgnored(root); err != nil {
 		return err
 	}
-	if err := decryptCommitSnapshot(root, current, cfg, id, true, cmd); err != nil {
+	if err := decryptCommitSnapshot(root, current, p, cfg, id, true, cmd); err != nil {
 		return err
 	}
 	if err := saveAutoDecryptState(root, statePath, current); err != nil {
@@ -189,7 +200,28 @@ func runAcceptChanges(cmd *cobra.Command, flags *globalFlags) error {
 	return nil
 }
 
-func decryptCommitSnapshot(root, commit string, cfg *config.Config, id *keys.Identity, report bool, cmd *cobra.Command) error {
+func decryptCommitSnapshot(root, commit string, p config.Paths, cfg *config.Config, id *keys.Identity, report bool, cmd *cobra.Command) error {
+	recipientsRel, err := repoRelative(root, p.Recipients)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	recipientsBlob, err := gitBlob(root, commit, recipientsRel)
+	if err != nil || !recipientsBlob.Exists {
+		return withExit(exitConfig, fmt.Errorf("recipients file is missing from commit %s", shortCommit(commit)))
+	}
+	rf, err := keys.ParseRecipients(recipientsBlob.Data)
+	if err != nil {
+		return withExit(exitConfig, fmt.Errorf("recipients file in commit %s is invalid: %w", shortCommit(commit), err))
+	}
+	configRel, err := repoRelative(root, p.Config)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	type preparedCiphertext struct {
+		pair config.FilePair
+		data []byte
+	}
+	prepared := make([]preparedCiphertext, 0, len(cfg.Files))
 	for _, fp := range cfg.Files {
 		cipherRel, err := repoRelative(root, fp.CiphertextPath)
 		if err != nil {
@@ -199,12 +231,31 @@ func decryptCommitSnapshot(root, commit string, cfg *config.Config, id *keys.Ide
 		if err != nil || !blob.Exists {
 			return fmt.Errorf("ciphertext %s is missing from commit %s", fp.Ciphertext, shortCommit(commit))
 		}
+		signatureRel := authenticity.SignatureName(fp.Ciphertext)
+		signatureBlob, signatureErr := gitBlob(root, commit, signatureRel)
+		if signatureErr != nil {
+			return signatureErr
+		}
+		if !signatureBlob.Exists {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", unsignedMigrationWarning, fp.Ciphertext)
+		} else {
+			binding := authenticity.Binding{
+				RecipientsFingerprint: rf.Fingerprint(), ConfigPath: configRel,
+				PlaintextPath: fp.Plaintext, CiphertextPath: fp.Ciphertext,
+			}
+			if _, verifyErr := authenticity.Verify(signatureBlob.Data, rf, binding, blob.Data); verifyErr != nil {
+				return verifyErr
+			}
+		}
+		prepared = append(prepared, preparedCiphertext{pair: fp, data: blob.Data})
+	}
+	for _, item := range prepared {
 		ccfg := crypt.Config{Identities: id.Identities, Label: id.Label}
-		if err := crypt.OpenBytes(ccfg, blob.Data, fp.PlaintextPath); err != nil {
-			return fmt.Errorf("refuse to write %s: %w", fp.Plaintext, err)
+		if err := crypt.OpenBytes(ccfg, item.data, item.pair.PlaintextPath); err != nil {
+			return fmt.Errorf("refuse to write %s: %w", item.pair.Plaintext, err)
 		}
 		if report {
-			fmt.Fprintf(cmd.OutOrStdout(), "decrypted %s → %s\n", fp.Ciphertext, fp.Plaintext)
+			fmt.Fprintf(cmd.OutOrStdout(), "decrypted %s → %s\n", item.pair.Ciphertext, item.pair.Plaintext)
 		}
 	}
 	return nil
@@ -393,12 +444,15 @@ func resolveCommit(root, revision string) (string, error) {
 }
 
 func gitBlob(root, commit, rel string) (gitBlobResult, error) {
+	listed, err := gitCommandBytes(root, "ls-tree", "-z", "--name-only", commit, "--", filepath.ToSlash(rel))
+	if err != nil {
+		return gitBlobResult{}, err
+	}
+	if len(listed) == 0 {
+		return gitBlobResult{}, nil
+	}
 	out, err := gitCommandBytes(root, "show", commit+":"+filepath.ToSlash(rel))
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return gitBlobResult{}, nil
-		}
 		return gitBlobResult{}, err
 	}
 	return gitBlobResult{Data: out, Exists: true}, nil

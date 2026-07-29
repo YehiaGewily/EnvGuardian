@@ -3,10 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 
-	"filippo.io/age"
 	"github.com/spf13/cobra"
 
 	"github.com/YehiaGewily/envguardian/internal/crypt"
@@ -62,20 +59,17 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		return withExit(exitConfig, err)
 	}
 
-	// A brand-new ciphertext needs no identity. Existing ciphertext always does
-	// unless the user deliberately selects the loud --force recovery path.
-	var identities []age.Identity
-	var label string
-	if id, rerr := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter()); rerr == nil {
-		identities, label = id.Identities, id.Label
-	} else if flags.identity != "" || strings.TrimSpace(os.Getenv("ENVGUARDIAN_IDENTITY")) != "" {
-		return rerr // never ignore an explicitly supplied invalid identity
+	// Stage D requires an SSH identity for every new or replacement signature.
+	// Existing ciphertext also uses its age-compatible form for decrypt-compare.
+	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+	if err != nil {
+		return err
 	}
 
 	out := cmd.OutOrStdout()
 	ccfg := crypt.Config{
-		Identities:  identities,
-		Label:       label,
+		Identities:  id.Identities,
+		Label:       id.Label,
 		LockPath:    p.Lock,
 		Fingerprint: rf.Fingerprint(),
 		Force:       force,
@@ -90,8 +84,16 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		}
 		plans = append(plans, plan)
 	}
+	signaturePlans := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	for i, fp := range cfg.Files {
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		if signErr != nil {
+			return signErr
+		}
+		signaturePlans = append(signaturePlans, signaturePlan)
+	}
 	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
-		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(),
+		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: signaturePlans,
 	}); err != nil {
 		return err
 	}

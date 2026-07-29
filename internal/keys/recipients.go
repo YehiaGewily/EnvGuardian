@@ -173,6 +173,24 @@ func (f *RecipientsFile) Names() []string {
 	return out
 }
 
+// RecipientNameForPublicKey returns the current recipient that owns key. SSH
+// comments are ignored through the same canonicalization used by validation
+// and recipient fingerprints.
+func (f *RecipientsFile) RecipientNameForPublicKey(key string) (string, bool) {
+	want := canonicalKey(key)
+	if want == "" {
+		return "", false
+	}
+	for _, recipient := range f.Recipients {
+		for _, candidate := range recipient.PublicKeys() {
+			if canonicalKey(candidate) == want {
+				return recipient.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
 // RecipientNameForSigningKey returns the recipient whose SSH public key has
 // the fingerprint reported by git for a verified SSH commit signature. age
 // X25519 recipients cannot sign commits and therefore never match.
@@ -206,21 +224,17 @@ func ParseRecipient(key string) (age.Recipient, error) {
 	case strings.HasPrefix(key, "age1"):
 		r, err := age.ParseX25519Recipient(key)
 		if err != nil {
-			return nil, fmt.Errorf("not a valid age recipient: %w", err)
+			return nil, errors.New("not a valid age recipient")
 		}
 		return r, nil
 	case strings.HasPrefix(key, "ssh-"):
 		r, err := agessh.ParseRecipient(key)
 		if err != nil {
-			return nil, fmt.Errorf("not a valid SSH recipient (only ssh-ed25519 and ssh-rsa are supported): %w", err)
+			return nil, errors.New("not a valid SSH recipient (only ssh-ed25519 and ssh-rsa are supported)")
 		}
 		return r, nil
 	default:
-		preview := key
-		if len(preview) > 16 {
-			preview = preview[:16] + "…"
-		}
-		return nil, fmt.Errorf("unrecognized key %q: expected an age1... or ssh-ed25519/ssh-rsa public key", preview)
+		return nil, errors.New("unrecognized key: expected an age1... or ssh-ed25519/ssh-rsa public key")
 	}
 }
 

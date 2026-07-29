@@ -112,6 +112,12 @@ func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPat
 			return fmt.Errorf("inspect ciphertext %s: %w", fp.Ciphertext, statErr)
 		}
 	}
+	if identity == nil {
+		identity, err = keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
+		if err != nil {
+			return err
+		}
+	}
 	ccfg := crypt.Config{
 		LockPath: p.Lock, Fingerprint: candidate.Fingerprint(),
 		Logf: func(f string, a ...any) { fmt.Fprintf(cmd.ErrOrStderr(), f+"\n", a...) },
@@ -128,9 +134,17 @@ func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPat
 		}
 		plans = append(plans, plan)
 	}
+	additional := []*crypt.FilePlan{recipientsPlan}
+	for i, fp := range cfg.Files {
+		signaturePlan, signErr := planCiphertextSignature(p, fp, candidate.Fingerprint(), candidate, identity, plans[i])
+		if signErr != nil {
+			return signErr
+		}
+		additional = append(additional, signaturePlan)
+	}
 	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
 		LockPath: p.Lock, RecipientsFingerprint: candidate.Fingerprint(),
-		Additional: []*crypt.FilePlan{recipientsPlan},
+		Additional: additional,
 	}); err != nil {
 		return err
 	}

@@ -3,8 +3,10 @@
 /.github/CODEOWNERS @YehiaGewily
 /.envguardian/** @YehiaGewily
 *.age @YehiaGewily
+*.age.sig @YehiaGewily
 /.gitattributes @YehiaGewily
 /.github/workflows/** @YehiaGewily
 /internal/crypt/** @YehiaGewily
+/internal/authenticity/** @YehiaGewily
 /internal/keys/** @YehiaGewily
 /internal/cli/hooks.go @YehiaGewily

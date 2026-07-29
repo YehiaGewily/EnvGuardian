@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/YehiaGewily/envguardian/internal/authenticity"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/dotenv"
 	"github.com/YehiaGewily/envguardian/internal/keys"
@@ -23,6 +24,7 @@ const (
 	exitOutOfSync = 1
 	exitIdentity  = 2
 	exitConfig    = 3
+	exitSignature = 4
 )
 
 // BuildInfo carries version metadata injected at build time.
@@ -116,6 +118,10 @@ func Execute(info BuildInfo) int {
 // exitCodeFor maps an error to an exit code. Identity/decrypt failures take
 // precedence (2), then any explicit code, else a generic failure (1).
 func exitCodeFor(err error) int {
+	var signatureErr *authenticity.SignatureError
+	if errors.As(err, &signatureErr) {
+		return exitSignature
+	}
 	var decryptErr *crypt.DecryptError
 	var identityRequired *crypt.IdentityRequiredError
 	if errors.As(err, &decryptErr) || errors.As(err, &identityRequired) {

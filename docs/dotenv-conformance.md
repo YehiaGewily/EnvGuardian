@@ -1,4 +1,4 @@
-# `.env` conformance: how four parsers disagree, and what EnvGuardian does
+# `.env` behavior and godotenv differential conformance
 
 There is no `.env` standard. Four commonly used implementations disagree on
 quoting, interpolation, comments, and whitespace in ways that silently change
@@ -6,13 +6,11 @@ secret values. This document records those disagreements with concrete
 inputs/outputs and states the behaviour EnvGuardian adopts for each, with the
 reasoning.
 
-> **Evidence boundary.** The repository contains one automated differential
-> test, against **godotenv v1.5.1**. It is compiled only with the
-> `differential` build tag and does **not** run in the normal CI workflow. The
-> python-dotenv, Node dotenv, and Docker columns are maintained as manual
-> reference notes; no repository test currently executes those implementations.
-> Their version-sensitive behavior must be rechecked before making a release
-> claim from this table.
+> **Conformance boundary.** EnvGuardian makes an automated compatibility claim
+> only against pinned **godotenv v1.5.1**. CI runs that differential suite
+> explicitly with the `differential` build tag. The python-dotenv, Node dotenv,
+> and Docker columns below are non-authoritative background notes from manual
+> investigation—not tested compatibility claims and not release evidence.
 
 **Legend for output cells:** `↵` = a real newline inside the value ·
 `␣` = a significant space · `(empty)` = set to `""` · `(unset)` = not defined ·
@@ -355,6 +353,6 @@ the ciphertext must not churn, the parser must be a faithful round-tripper,
 which none of the four references attempt.
 
 > Run `go test -tags differential -run TestDifferentialGodotenv
-> ./internal/dotenv` to execute the current godotenv comparison. This test is
-> intentionally outside normal CI because its dependency is build-tagged.
-> Python, Node, and Docker differential runners remain unimplemented.
+> ./internal/dotenv` to execute the pinned godotenv comparison locally. The CI
+> workflow runs the same command as a required, explicit job. EnvGuardian makes
+> no automated conformance claim for Python, Node, or Docker.

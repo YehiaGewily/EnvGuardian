@@ -1,6 +1,7 @@
 package crypt
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,5 +81,39 @@ func TestVerifyLockBytesUsesExactSnapshot(t *testing.T) {
 	targets[0].Data = append(append([]byte(nil), ciphertext...), '\n')
 	if err := VerifyLockBytes(lock, targets, fingerprint); err == nil || !strings.Contains(err.Error(), "does not match its lock digest") {
 		t.Fatalf("VerifyLockBytes changed snapshot error=%v", err)
+	}
+}
+
+func TestLockVerificationFailureModes(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "lock.toml")
+	fingerprint := "v1:" + strings.Repeat("c", 64)
+
+	if err := VerifyLock(lockPath, nil, fingerprint); err == nil || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing lock error = %v", err)
+	}
+	if _, err := parseLock([]byte("version = 2\n")); err == nil || !strings.Contains(err.Error(), "no [[file]]") {
+		t.Fatalf("empty lock error = %v", err)
+	}
+	missingName := []byte("version = 2\n[[file]]\nciphertext = \" \"\nrecipients_fingerprint = \"" + fingerprint + "\"\nciphertext_sha256 = \"" + strings.Repeat("0", 64) + "\"\n")
+	if _, err := parseLock(missingName); err == nil || !strings.Contains(err.Error(), "has no ciphertext") {
+		t.Fatalf("missing ciphertext name error = %v", err)
+	}
+
+	entries := []LockEntry{
+		{Ciphertext: "a.age", RecipientsFingerprint: fingerprint, CiphertextSHA256: ciphertextDigest([]byte("a"))},
+		{Ciphertext: "b.age", RecipientsFingerprint: fingerprint, CiphertextSHA256: ciphertextDigest([]byte("b"))},
+	}
+	lockData, err := encodeLock(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateTargets := []LockBlobTarget{{Ciphertext: "a.age", Data: []byte("a")}, {Ciphertext: "a.age", Data: []byte("a")}}
+	if err := VerifyLockBytes(lockData, duplicateTargets, fingerprint); err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("duplicate configured target error = %v", err)
+	}
+	wrongTargets := []LockBlobTarget{{Ciphertext: "other.age", Data: []byte("a")}, {Ciphertext: "b.age", Data: []byte("b")}}
+	if err := VerifyLockBytes(lockData, wrongTargets, fingerprint); err == nil || !strings.Contains(err.Error(), "extra ciphertext") {
+		t.Fatalf("extra lock entry error = %v", err)
 	}
 }

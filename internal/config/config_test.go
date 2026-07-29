@@ -81,6 +81,11 @@ func TestParseRejectsMappingAliases(t *testing.T) {
 			wantErr: "resolve to the same file",
 		},
 		{
+			name:    "plaintext collides with derived signature",
+			body:    "version = 1\n[[file]]\nplaintext = \"secret.age.sig\"\nciphertext = \"secret.age\"\n",
+			wantErr: "signature for ciphertext",
+		},
+		{
 			name:    "duplicate plaintext",
 			body:    "version = 1\n[[file]]\nplaintext = \"a.env\"\nciphertext = \"a.age\"\n[[file]]\nplaintext = \"dir/../a.env\"\nciphertext = \"b.age\"\n",
 			wantErr: "duplicate plaintext",
@@ -122,6 +127,9 @@ func TestParseResolvesPathsOnce(t *testing.T) {
 	if got := cfg.Files[0].CiphertextPath; got != filepath.Join(canonicalRoot, "config", "dev", ".env.age") {
 		t.Fatalf("resolved ciphertext = %q", got)
 	}
+	if got := cfg.Files[0].SignaturePath; got != filepath.Join(canonicalRoot, "config", "dev", ".env.age.sig") {
+		t.Fatalf("resolved signature = %q", got)
+	}
 }
 
 func TestParseRejectsMultipleDistinctMappings(t *testing.T) {
@@ -162,5 +170,38 @@ func TestLoadPreservesNotExist(t *testing.T) {
 	_, err := Load(root, filepath.Join(root, ".envguardian", "config.toml"))
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Load error = %v, want errors.Is(os.ErrNotExist)", err)
+	}
+}
+
+func TestPathsLoadAndSaveRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	paths := PathsFor(root)
+	if paths.Root != root || paths.Dir != filepath.Join(root, Dir) || paths.State != filepath.Join(root, Dir, AutoDecryptStateFile) {
+		t.Fatalf("PathsFor returned unexpected conventional paths: %+v", paths)
+	}
+	if err := os.MkdirAll(paths.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{Version: Version, Files: []FilePair{{Plaintext: ".env", Ciphertext: ".env.age"}}}
+	if err := cfg.Save(paths.Config); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := Load(root, paths.Config)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Version != Version || len(loaded.Files) != 1 || loaded.Files[0].Plaintext != ".env" {
+		t.Fatalf("round-trip config structure is wrong: %+v", loaded)
+	}
+}
+
+func TestLoadRejectsMalformedExistingConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	if err := os.WriteFile(path, []byte("version = ["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root, path); err == nil || !strings.Contains(err.Error(), "is invalid") {
+		t.Fatalf("Load malformed config error = %v", err)
 	}
 }

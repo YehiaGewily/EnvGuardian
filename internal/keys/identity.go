@@ -59,9 +59,6 @@ func (e *NoIdentityError) Error() string {
 	}
 	for _, a := range e.Attempts {
 		reason := string(a.Reason)
-		if a.Err != nil && a.Reason != ReasonNeedsPassphrase {
-			reason = fmt.Sprintf("%s (%v)", a.Reason, a.Err)
-		}
 		fmt.Fprintf(&b, "  %-*s  %s\n", width, a.Source, reason)
 	}
 	b.WriteString("next: set $ENVGUARDIAN_IDENTITY to your key (path or contents), or pass --identity <path>")
@@ -87,6 +84,10 @@ type Identity struct {
 	Identities []age.Identity
 	Label      string
 	Recipient  string // public key line: "age1..." or "ssh-ed25519 ..."
+	// SSHKeyPath is set only when the resolved identity is an SSH private-key
+	// file that ssh-keygen can use for detached signatures. Raw environment key
+	// material and age identities intentionally leave it empty.
+	SSHKeyPath string
 }
 
 // Prompter supplies passphrases for encrypted identities. Interactive reports
@@ -188,7 +189,13 @@ func ResolveIdentity(flagPath string, p Prompter) (*Identity, error) {
 			}
 			continue
 		}
-		return &Identity{Identities: ids, Label: label, Recipient: recipient}, nil
+		sshKeyPath := ""
+		if isSSHPrivateKey(raw) && label != "$ENVGUARDIAN_IDENTITY" {
+			if absolute, absErr := filepath.Abs(label); absErr == nil {
+				sshKeyPath = absolute
+			}
+		}
+		return &Identity{Identities: ids, Label: label, Recipient: recipient, SSHKeyPath: sshKeyPath}, nil
 	}
 	return nil, &NoIdentityError{Attempts: attempts}
 }
@@ -251,7 +258,7 @@ func parseSSHIdentity(pem []byte, p Prompter) ([]age.Identity, string, error) {
 		return nil, "", ErrPassphraseRequired
 	}
 	if missing.PublicKey == nil {
-		return nil, "", fmt.Errorf("encrypted SSH key has no embedded public key; convert it to the OpenSSH format or use an age key: %w", err)
+		return nil, "", errors.New("encrypted SSH key has no embedded public key; convert it to the OpenSSH format or use an age key")
 	}
 	enc, err := agessh.NewEncryptedSSHIdentity(missing.PublicKey, pem, func() ([]byte, error) {
 		return p.Passphrase("Enter passphrase for SSH key: ")
@@ -280,7 +287,7 @@ func parseEncryptedAgeIdentity(raw []byte, p Prompter) ([]age.Identity, string, 
 	}
 	r, err := age.Decrypt(src, scrypt)
 	if err != nil {
-		return nil, "", fmt.Errorf("decrypt passphrase-protected age identity (wrong passphrase?): %w", err)
+		return nil, "", errors.New("could not decrypt passphrase-protected age identity (wrong passphrase?)")
 	}
 	dec, err := io.ReadAll(r)
 	if err != nil {

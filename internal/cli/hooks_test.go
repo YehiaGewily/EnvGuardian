@@ -113,7 +113,6 @@ func TestInstallHooksBlocksPlaintextCommit(t *testing.T) {
 }
 
 func TestInstallHooksIdempotentAndUninstall(t *testing.T) {
-	bin := buildBinary(t)
 	repo := gitInitRepo(t)
 
 	// A pre-existing hook we must not clobber.
@@ -121,14 +120,19 @@ func TestInstallHooksIdempotentAndUninstall(t *testing.T) {
 	if err := os.WriteFile(hookPath, []byte("#!/bin/sh\necho existing\n"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(hookPath, 0o710); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	idPath := filepath.Join(repo, "id.txt")
 	writeAgeID(t, idPath)
-	run(t, repo, bin, "init", "--identity", idPath, "--name", "alice")
+	runCLICombinedInDir(t, repo, "init", "--identity", idPath, "--name", "alice")
 
 	// Install twice; the block must appear exactly once and the original line survive.
-	run(t, repo, bin, "install-hooks")
-	run(t, repo, bin, "install-hooks")
+	runCLICombinedInDir(t, repo, "install-hooks")
+	runCLICombinedInDir(t, repo, "install-hooks")
 	data, _ := os.ReadFile(hookPath)
 	if n := strings.Count(string(data), hookBegin); n != 1 {
 		t.Errorf("managed block appears %d times, want 1:\n%s", n, data)
@@ -136,9 +140,18 @@ func TestInstallHooksIdempotentAndUninstall(t *testing.T) {
 	if !strings.Contains(string(data), "echo existing") {
 		t.Errorf("pre-existing hook content was lost:\n%s", data)
 	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(hookPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o710 {
+			t.Errorf("hook permissions = %o, want preserved 710", got)
+		}
+	}
 
 	// Uninstall removes only our block.
-	run(t, repo, bin, "install-hooks", "--uninstall")
+	runCLICombinedInDir(t, repo, "install-hooks", "--uninstall")
 	data, _ = os.ReadFile(hookPath)
 	if strings.Contains(string(data), hookBegin) {
 		t.Errorf("uninstall left the managed block:\n%s", data)
@@ -148,41 +161,40 @@ func TestInstallHooksIdempotentAndUninstall(t *testing.T) {
 	}
 }
 
-func setupCommittedHookRepo(t *testing.T) (bin, repo, identity string) {
+func setupCommittedHookRepo(t *testing.T) (repo, identity string) {
 	t.Helper()
-	bin = buildBinary(t)
 	repo = gitInitRepo(t)
 	identity = filepath.Join(repo, "id.txt")
 	writeAgeID(t, identity)
-	if out, code := run(t, repo, bin, "init", "--identity", identity, "--name", "alice"); code != exitOK {
+	if out, code := runCLICombinedInDir(t, repo, "init", "--identity", identity, "--name", "alice"); code != exitOK {
 		t.Fatalf("init: %d\n%s", code, out)
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("A=one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, code := run(t, repo, bin, "encrypt", "--identity", identity); code != exitOK {
+	if out, code := runCLICombinedInDir(t, repo, "encrypt", "--identity", identity); code != exitOK {
 		t.Fatalf("encrypt: %d\n%s", code, out)
 	}
-	if out, code := run(t, repo, "git", "add", ".gitignore", ".env.age", ".envguardian"); code != exitOK {
+	if out, code := run(t, repo, "git", "add", ".gitignore", ".env.age", ".env.age.sig", ".envguardian"); code != exitOK {
 		t.Fatalf("git add baseline: %d\n%s", code, out)
 	}
 	if out, code := run(t, repo, "git", "commit", "-m", "baseline"); code != exitOK {
 		t.Fatalf("commit baseline: %d\n%s", code, out)
 	}
-	return bin, repo, identity
+	return repo, identity
 }
 
 func TestPreCommitComparesPlaintextWithStagedCiphertext(t *testing.T) {
-	bin, repo, identity := setupCommittedHookRepo(t)
+	repo, identity := setupCommittedHookRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("A=two\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run(t, repo, bin, "encrypt", "--identity", identity)
-	run(t, repo, "git", "add", ".env.age", ".envguardian/lock.toml")
+	runCLICombinedInDir(t, repo, "encrypt", "--identity", identity)
+	run(t, repo, "git", "add", ".env.age", ".env.age.sig", ".envguardian/lock.toml")
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("A=sentinel-secret-three\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", identity)
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
 	if code != exitOutOfSync || !strings.Contains(out, "changed keys: [A]") {
 		t.Fatalf("stale staged ciphertext exit=%d\n%s", code, out)
 	}
@@ -192,7 +204,7 @@ func TestPreCommitComparesPlaintextWithStagedCiphertext(t *testing.T) {
 }
 
 func TestPreCommitRejectsStagedRecipientsWithOldLock(t *testing.T) {
-	bin, repo, identity := setupCommittedHookRepo(t)
+	repo, identity := setupCommittedHookRepo(t)
 	secondIdentity := filepath.Join(repo, "second-id.txt")
 	secondRecipient := writeAgeID(t, secondIdentity)
 	recipientsPath := filepath.Join(repo, ".envguardian", "recipients.toml")
@@ -205,31 +217,31 @@ func TestPreCommitRejectsStagedRecipientsWithOldLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, repo, "git", "add", ".envguardian/recipients.toml")
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", identity)
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
 	if code != exitOutOfSync || !strings.Contains(out, "lock fingerprint differs") {
 		t.Fatalf("old lock with staged recipients exit=%d\n%s", code, out)
 	}
 }
 
 func TestPreCommitDetectsPartialCiphertextStaging(t *testing.T) {
-	bin, repo, identity := setupCommittedHookRepo(t)
+	repo, identity := setupCommittedHookRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("A=two\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run(t, repo, bin, "encrypt", "--identity", identity)
-	run(t, repo, "git", "add", ".env.age", ".envguardian/lock.toml")
+	runCLICombinedInDir(t, repo, "encrypt", "--identity", identity)
+	run(t, repo, "git", "add", ".env.age", ".env.age.sig", ".envguardian/lock.toml")
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("A=three\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run(t, repo, bin, "encrypt", "--identity", identity)
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", identity)
+	runCLICombinedInDir(t, repo, "encrypt", "--identity", identity)
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
 	if code != exitOutOfSync || !strings.Contains(out, "working and staged ciphertext differ") {
 		t.Fatalf("partial staging exit=%d\n%s", code, out)
 	}
 }
 
 func TestPreCommitManagedChangeRequiresIdentity(t *testing.T) {
-	bin, repo, _ := setupCommittedHookRepo(t)
+	repo, _ := setupCommittedHookRepo(t)
 	configPath := filepath.Join(repo, ".envguardian", "config.toml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -239,43 +251,43 @@ func TestPreCommitManagedChangeRequiresIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, repo, "git", "add", ".envguardian/config.toml")
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", filepath.Join(repo, "missing-id"))
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", filepath.Join(repo, "missing-id"))
 	if code != exitIdentity {
 		t.Fatalf("missing identity exit=%d, want %d\n%s", code, exitIdentity, out)
 	}
 }
 
 func TestPreCommitUnmanagedChangeUsesStructuralVerification(t *testing.T) {
-	bin, repo, _ := setupCommittedHookRepo(t)
+	repo, _ := setupCommittedHookRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("unmanaged\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run(t, repo, "git", "add", "README.md")
-	if out, code := run(t, repo, bin, "hook-pre-commit", "--identity", filepath.Join(repo, "missing-id")); code != exitOK {
+	if out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", filepath.Join(repo, "missing-id")); code != exitOK {
 		t.Fatalf("unmanaged commit required an identity: %d\n%s", code, out)
 	}
 }
 
 func TestPreCommitRejectsPartialConfigStaging(t *testing.T) {
-	bin, repo, identity := setupCommittedHookRepo(t)
+	repo, identity := setupCommittedHookRepo(t)
 	configPath := filepath.Join(repo, ".envguardian", "config.toml")
 	bad := "version = 1\n\n[[file]]\nplaintext = \".env\"\nciphertext = \"missing.age\"\n"
 	if err := os.WriteFile(configPath, []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run(t, repo, "git", "add", ".envguardian/config.toml")
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", identity)
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
 	if code == exitOK || !strings.Contains(out, "staged ciphertext missing.age is missing") {
 		t.Fatalf("partial config staging exit=%d\n%s", code, out)
 	}
 }
 
 func TestPreCommitHandlesConfigRemoval(t *testing.T) {
-	bin, repo, _ := setupCommittedHookRepo(t)
+	repo, _ := setupCommittedHookRepo(t)
 	if out, code := run(t, repo, "git", "rm", ".envguardian/config.toml"); code != exitOK {
 		t.Fatalf("git rm config: %d\n%s", code, out)
 	}
-	if out, code := run(t, repo, bin, "hook-pre-commit"); code != exitOK {
+	if out, code := runCLICombinedInDir(t, repo, "hook-pre-commit"); code != exitOK {
 		t.Fatalf("config removal was not handled: %d\n%s", code, out)
 	}
 }
@@ -299,7 +311,7 @@ func TestInstallHookRefusesMalformedShebang(t *testing.T) {
 }
 
 func TestPreCommitRejectsPlaintextAlreadyPresentInIndex(t *testing.T) {
-	bin, repo, identity := setupCommittedHookRepo(t)
+	repo, identity := setupCommittedHookRepo(t)
 	if out, code := run(t, repo, "git", "add", "-f", ".env"); code != exitOK {
 		t.Fatalf("force add plaintext: %d\n%s", code, out)
 	}
@@ -310,8 +322,31 @@ func TestPreCommitRejectsPlaintextAlreadyPresentInIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, repo, "git", "add", "README.md")
-	out, code := run(t, repo, bin, "hook-pre-commit", "--identity", identity)
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
 	if code != exitConfig || !strings.Contains(out, "refusing to commit plaintext") {
 		t.Fatalf("tracked plaintext was not rejected: %d\n%s", code, out)
+	}
+}
+
+func TestPreCommitRejectsBadSignature(t *testing.T) {
+	repo, identity := setupCommittedHookRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".env.age.sig"), []byte("bad signature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "git", "add", ".env.age.sig")
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
+	if code != exitSignature || !strings.Contains(out, "ciphertext signature error") {
+		t.Fatalf("bad staged signature exit=%d\n%s", code, out)
+	}
+}
+
+func TestPreCommitAllowsMissingSignatureWithMigrationWarning(t *testing.T) {
+	repo, identity := setupCommittedHookRepo(t)
+	if out, code := run(t, repo, "git", "rm", ".env.age.sig"); code != exitOK {
+		t.Fatalf("git rm signature: %d\n%s", code, out)
+	}
+	out, code := runCLICombinedInDir(t, repo, "hook-pre-commit", "--identity", identity)
+	if code != exitOK || !strings.Contains(out, unsignedMigrationWarning) {
+		t.Fatalf("missing signature migration exit=%d\n%s", code, out)
 	}
 }

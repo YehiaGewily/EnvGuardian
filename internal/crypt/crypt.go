@@ -52,7 +52,9 @@ type DecryptError struct {
 	Err error
 }
 
-func (e *DecryptError) Error() string { return fmt.Sprintf("decrypt ciphertext: %v", e.Err) }
+func (e *DecryptError) Error() string {
+	return "decrypt ciphertext: ciphertext is malformed, the identity does not match, or authentication failed"
+}
 func (e *DecryptError) Unwrap() error { return e.Err }
 
 // Config carries the shared inputs for Seal and Open.
@@ -98,7 +100,7 @@ func OpenBytes(cfg Config, ciphertext []byte, plaintextPath string) error {
 			return fmt.Errorf("%w\n  the identity used was: %s\n  fix: ask a teammate to run `envguardian add-recipient --github <username>` and commit the result",
 				ErrNotARecipient, cfg.Label)
 		}
-		return fmt.Errorf("decrypt ciphertext: %w", err)
+		return &DecryptError{Err: err}
 	}
 	if err := atomic.WriteFile(plaintextPath, plaintext, 0o600); err != nil {
 		return err

@@ -31,6 +31,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   staged lock/ciphertext/recipient checks, plaintext rejection, identity
   enforcement for managed changes, partial-staging detection, and safe config
   removal handling.
+- Added detached OpenSSH signatures for ciphertext authenticity. The signed
+  public payload binds exact ciphertext bytes, recipient fingerprint, config
+  path, and file mapping; verification accepts only current SSH recipients.
+  Present invalid signatures fail before plaintext writes with exit code 4.
+- Included signature writes in seal and recipient transactions, verified exact
+  signature blobs in checks and hooks, and made Git snapshot reads fail closed.
+  Missing signatures warn during v0.1.x migration and fail starting in v0.2.
+- Removed malformed dotenv fragments, identity/key material, and untrusted
+  subprocess output from diagnostics; added sentinel non-disclosure tests.
+- Routed all production writes through the atomic writer, preserved existing
+  hook modes, and documented the unresolved Windows ACL limitation.
 
 ### Changed
 

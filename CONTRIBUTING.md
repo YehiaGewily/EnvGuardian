@@ -28,7 +28,8 @@ rules; they do not depend on a local or tool-specific instruction file.
    inputs are already public.
 7. **Treat age as confidentiality, not sender authentication.** Decrypting
    successfully does not establish who created a ciphertext. Do not describe it
-   as provenance or authenticity.
+   as provenance or authenticity. Only a separately verified detached
+   signature may establish artifact authorship.
 8. **Keep documentation true.** A false security, release, installation, or
    feature claim is a release-blocking bug.
 9. **Keep the public API surface at zero.** Project packages live under

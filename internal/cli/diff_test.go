@@ -42,7 +42,7 @@ func TestDiffDriverEndToEnd(t *testing.T) {
 	if out, code := run(t, repo, bin, "diff", "--install"); code != 0 {
 		t.Fatalf("diff --install: %d\n%s", code, out)
 	}
-	run(t, repo, "git", "add", ".env.age", ".gitattributes", ".envguardian")
+	run(t, repo, "git", "add", ".env.age", ".env.age.sig", ".gitattributes", ".envguardian")
 	if out, code := runEnv(t, repo, env, "git", "commit", "-m", "v1"); code != 0 {
 		t.Fatalf("commit v1: %d\n%s", code, out)
 	}
@@ -63,6 +63,28 @@ func TestDiffDriverEndToEnd(t *testing.T) {
 		if strings.Contains(out, secret) {
 			t.Errorf("git diff LEAKED value %q:\n%s", secret, out)
 		}
+	}
+}
+
+func TestInstallDiffDriverInProcess(t *testing.T) {
+	repo := gitInitRepo(t)
+	stdout, stderr, code := runCLIInDir(t, repo, "diff", "--install")
+	if code != exitOK {
+		t.Fatalf("diff --install exit=%d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "configured local git diff.envguardian.command") {
+		t.Fatal("diff installation omitted its success diagnostic")
+	}
+	attributes, err := os.ReadFile(filepath.Join(repo, ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(attributes), "*.age diff=envguardian") {
+		t.Fatal("diff installation did not write the repository attribute")
+	}
+	configured, code := run(t, repo, "git", "config", "--local", "--get", "diff.envguardian.command")
+	if code != exitOK || !strings.Contains(configured, "diff-driver") {
+		t.Fatal("diff installation did not register the local external driver")
 	}
 }
 

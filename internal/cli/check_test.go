@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,5 +194,53 @@ func TestCheckDetectsCiphertextLockDigestMismatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "does not match its lock digest") {
 		t.Fatalf("check did not report ciphertext digest mismatch:\n%s", out)
+	}
+}
+
+func TestMissingSignatureIsMigrationWarning(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := setupRepo(t, dir, "A=1\n")
+	if err := os.Remove(filepath.Join(dir, ".env.age.sig")); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := runCLI(t, "check", "--identity", idPath)
+	if code != exitOK || !strings.Contains(out, "[WARN]") || !strings.Contains(out, "v0.2 will reject") {
+		t.Fatalf("unsigned check exit=%d\n%s", code, out)
+	}
+	if err := os.Remove(filepath.Join(dir, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := runCLI(t, "decrypt", "--identity", idPath)
+	if code != exitOK || !strings.Contains(stderr, unsignedMigrationWarning) {
+		t.Fatalf("unsigned decrypt exit=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestInvalidSignatureUsesDedicatedExitAndDoesNotWrite(t *testing.T) {
+	pinDate(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	idPath := setupRepo(t, dir, "A=SENTINEL-PLAINTEXT-SECRET\n")
+	if err := os.WriteFile(filepath.Join(dir, ".env.age.sig"), []byte("invalid detached signature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code := runCLI(t, "decrypt", "--identity", idPath)
+	if code != exitSignature {
+		t.Fatalf("invalid signature decrypt exit=%d, want %d; stderr=%s", code, exitSignature, stderr)
+	}
+	if strings.Contains(stderr, "SENTINEL-PLAINTEXT-SECRET") {
+		t.Fatalf("signature error leaked plaintext: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".env")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid signature wrote plaintext: %v", err)
+	}
+	out, _, code := runCLI(t, "check", "--identity", idPath)
+	if code != exitSignature || !strings.Contains(out, "[FAIL] signature") {
+		t.Fatalf("invalid signature check exit=%d\n%s", code, out)
 	}
 }

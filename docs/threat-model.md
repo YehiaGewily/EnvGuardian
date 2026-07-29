@@ -14,8 +14,9 @@ branches, working-tree files, and ciphertext authors are untrusted until the
 developer reviews and accepts the relevant commit.
 
 The repository host's protected-branch settings, signed-commit enforcement,
-review policy, and CI are required operational controls. They do not turn age
-ciphertext into an authenticated statement.
+review policy, and CI are required operational controls. EnvGuardian's detached
+SSH signature—not age decryption—turns a ciphertext artifact into an
+authenticated statement by a current recipient.
 
 ## What age establishes
 
@@ -43,7 +44,7 @@ loaded. Resolution:
 Decrypted bytes must parse completely as dotenv before a mode-`0600` atomic
 plaintext write. There is no bypass flag.
 
-## Automatic-decryption boundary before Stage D
+## Automatic-decryption boundary
 
 Automatic post-checkout and post-merge behavior stores the resolved commit of
 the last explicit acceptance or successful auto-decrypt in the local,
@@ -55,7 +56,7 @@ unchanged, the accepted mapping is used to compare committed recipients and
 ciphertext blobs. The hook decrypts committed blobs, not an uncommitted
 working-tree substitute.
 
-If config, recipients, or ciphertext changed, the hook writes no plaintext. It
+If config, recipients, ciphertext, or detached signature changed, the hook writes no plaintext. It
 reports configuration changes, recipient names, and dotenv key names only; it
 never prints values or value-derived metadata. It also reports whether the
 incoming commit is unsigned, signed by a recognized SSH recipient, signed by a
@@ -69,19 +70,28 @@ envguardian decrypt --accept-changes
 That command validates and decrypts the exact `HEAD` snapshot, writes plaintext,
 and updates local trust state only after successful writes.
 
-Commit-signature diagnostics are supporting context, not ciphertext
-authentication. An accepted commit can still contain ciphertext produced by a
-different party.
+Commit-signature diagnostics remain supporting context, not ciphertext
+authentication. The detached `.sig` artifact is verified independently against
+the current recipients file before any automatic plaintext write.
 
-## Stage D
+## Ciphertext authenticity
 
-Stage D will bind ciphertext provenance to an authorized signer and verify that
-binding before repository checks or automatic decryption. Once that mechanism
-lands, the tool can authenticate the ciphertext artifact itself instead of
-relying on an explicit local acceptance transition.
+Stage D binds ciphertext provenance to a current SSH recipient using OpenSSH
+detached signatures. The signed, domain-separated payload covers the exact
+ciphertext SHA-256, public recipient fingerprint, repository-relative config
+path, plaintext mapping, and ciphertext mapping. This prevents copying a valid
+signature to different ciphertext bytes, a different recipient set, or another
+mapping.
 
-Until then, `--accept-changes` is a human review boundary. It is deliberately
-required even when malicious ciphertext decrypts and parses successfully.
+`check`, manual decryption, pre-commit, post-checkout/post-merge decryption, and
+`decrypt --accept-changes` verify present signatures against current SSH
+recipient keys. A bad, re-pointed, or former-recipient signature fails with the
+dedicated authenticity exit code before plaintext is written.
+
+For migration, missing signatures are warnings in v0.1.x and failures in v0.2.
+The explicit acceptance transition remains required when managed commit inputs
+change; a valid artifact signature identifies a current recipient as sealer but
+does not prove that a branch was reviewed or approved.
 
 ## Does not protect against
 
