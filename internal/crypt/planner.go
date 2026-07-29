@@ -53,8 +53,7 @@ type SealPlan struct {
 }
 
 // FilePlan is an additional public metadata write that participates in the
-// same logical transaction as ciphertext and lock state (recipients.toml in
-// v0.1.1).
+// same logical transaction as ciphertext and lock state.
 type FilePlan struct {
 	Path           string
 	Existing       []byte
@@ -161,6 +160,54 @@ func PlanSeal(cfg Config, recipients []age.Recipient, plaintextPath, ciphertextP
 	return plan, nil
 }
 
+// PlanSealResolvedContent plans ciphertext from a dotenv payload that has
+// already been explicitly reconciled by the three-way merge driver. Existing
+// ciphertext is still decrypted and compared before replacement; the resolved
+// bytes answer what to write only because the caller completed that explicit
+// conflict-resolution step. No plaintext file is created.
+func PlanSealResolvedContent(cfg Config, recipients []age.Recipient, resolved []byte, ciphertextPath, ciphertextName string) (*SealPlan, error) {
+	if _, err := dotenv.Parse(bytes.NewReader(resolved)); err != nil {
+		return nil, &InvalidPlaintextError{Path: "resolved merge content", Err: err}
+	}
+	plan := &SealPlan{
+		PlaintextPath: "resolved merge content", CiphertextPath: ciphertextPath,
+		Ciphertext: filepath.ToSlash(ciphertextName),
+	}
+	existing, exists, err := readOptionalFile(ciphertextPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ciphertext %s: %w", ciphertextPath, err)
+	}
+	plan.Existing = existing
+	plan.ExistingExists = exists
+	if !exists {
+		replacement, encryptErr := encryptBytes(resolved, recipients)
+		if encryptErr != nil {
+			return nil, encryptErr
+		}
+		plan.Replacement = replacement
+		plan.Changed = true
+		return plan, nil
+	}
+	if len(cfg.Identities) == 0 {
+		return nil, &IdentityRequiredError{CiphertextPath: ciphertextPath, Reason: "no usable identity was found"}
+	}
+	decrypted, _, err := DecryptBytesToDotenv(cfg.Identities, existing)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decrypt existing %s to compare resolved merge content: %w", ciphertextPath, err)
+	}
+	lockCurrent := lockMatches(cfg.LockPath, plan.Ciphertext, cfg.Fingerprint, existing)
+	if lockCurrent && sameContent(decrypted, resolved) {
+		return plan, nil
+	}
+	replacement, err := encryptBytes(resolved, recipients)
+	if err != nil {
+		return nil, err
+	}
+	plan.Replacement = replacement
+	plan.Changed = true
+	return plan, nil
+}
+
 func planBlind(cfg Config, recipients []age.Recipient, plan *SealPlan, plaintext []byte, plaintextExists bool, reason string) (*SealPlan, error) {
 	if !cfg.Force {
 		return nil, &IdentityRequiredError{CiphertextPath: plan.CiphertextPath, Reason: reason}
@@ -182,6 +229,24 @@ func planBlind(cfg Config, recipients []age.Recipient, plan *SealPlan, plaintext
 // and rolls back already-attempted replacements on ordinary errors.
 func CommitSealPlans(plans []*SealPlan, options CommitOptions) error {
 	return commitSealPlans(plans, options, atomic.WriteFile)
+}
+
+// CommitMergeCiphertext atomically writes one explicitly resolved merge result
+// after rechecking the planner snapshot. It intentionally does not update the
+// shared lock: Git keeps the path conflicted until `envguardian merge
+// --continue` commits every ciphertext, signature, and the lock together.
+func CommitMergeCiphertext(plan *SealPlan) error {
+	if plan == nil || !plan.Changed || len(plan.Replacement) == 0 {
+		return errors.New("merge ciphertext plan has no replacement")
+	}
+	current, exists, err := readOptionalFile(plan.CiphertextPath)
+	if err != nil {
+		return fmt.Errorf("recheck merge ciphertext %s: %w", plan.CiphertextPath, err)
+	}
+	if exists != plan.ExistingExists || (exists && !bytes.Equal(current, plan.Existing)) {
+		return fmt.Errorf("refusing stale merge plan: %s changed after planning", plan.CiphertextPath)
+	}
+	return atomic.WriteFile(plan.CiphertextPath, plan.Replacement, 0o644)
 }
 
 type writeFileFunc func(string, []byte, os.FileMode) error
@@ -343,8 +408,8 @@ func readOptionalFile(path string) ([]byte, bool, error) {
 	return nil, false, err
 }
 
-// Seal is the single-file compatibility wrapper. New command paths plan a
-// slice first and call CommitSealPlans once.
+// Seal is the single-file convenience wrapper. Command paths that manage a
+// config plan the complete slice first and call CommitSealPlans once.
 func Seal(cfg Config, recipients []age.Recipient, plaintextPath, ciphertextPath string) (bool, error) {
 	plan, err := PlanSeal(cfg, recipients, plaintextPath, ciphertextPath, filepath.Base(ciphertextPath))
 	if err != nil {

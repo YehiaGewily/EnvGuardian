@@ -133,13 +133,13 @@ func lockEntryFor(lock *LockFile, ciphertext string) (LockEntry, bool) {
 	return LockEntry{}, false
 }
 
-// lockMatches reports whether the current lock has exactly the expected entry
-// and binds it to both the current ciphertext bytes and recipient fingerprint.
+// lockMatches reports whether the current lock has the expected entry and
+// binds it to both the current ciphertext bytes and recipient fingerprint.
 // Invalid or legacy lock files return false so an explicit seal can repair
 // them; VerifyLock returns their detailed failure instead.
 func lockMatches(lockPath, ciphertextName, fingerprint string, ciphertext []byte) bool {
 	lock, err := loadLock(lockPath)
-	if err != nil || len(lock.Files) != 1 {
+	if err != nil {
 		return false
 	}
 	entry, ok := lockEntryFor(lock, ciphertextName)

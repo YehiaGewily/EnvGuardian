@@ -1,4 +1,4 @@
-// Package gitint implements the repository's .gitignore checks and the shared
-// helper used to append managed dotfile entries. Hook installation and diff
-// command wiring currently live in internal/cli. No merge driver exists yet.
+// Package gitint implements repository ignore checks, managed dotfile updates,
+// and the value-in-memory three-way dotenv merge decision table. CLI wiring for
+// Git hooks and drivers lives in internal/cli.
 package gitint
