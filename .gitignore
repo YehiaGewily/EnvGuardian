@@ -1,22 +1,48 @@
+# Local state & caches
+.envguardian/
+.tmp-go-cache/
+.verify-go-cache/
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+# Coverage output
+coverage.out
+coverage.html
+Complete Recommended .gitignore File
+If you want the full, cleanly formatted file:
+
+gitignore
 # Local planning / agent files (not part of the project)
 plans_and_implementation/
 CLAUDE.md
 AGENT.md
 AGENTS.md
-
-# Build artifacts
+.codex/
+.claude/
+graphify-out/
+# Build artifacts & caches
 /envguardian
 /envguardian.exe
 /dist/
-
+*.test
+*.out
+.tmp-go-cache/
+.verify-go-cache/
 # Plaintext secrets — never commit
 .env
 .env.*
 !.env.*.age
-
-# Go
-*.test
-*.out
-graphify-out/
-.codex/
-.claude/
+# Local runtime state & dev keys
+.envguardian/
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+# Coverage
+coverage.out
+coverage.html
