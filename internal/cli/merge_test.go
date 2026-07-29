@@ -249,6 +249,35 @@ func TestMergeHelperFailureAndGeneratedPaths(t *testing.T) {
 	}
 }
 
+func TestResolveMergePathCanonicalizesFilesystemAliases(t *testing.T) {
+	realRoot := t.TempDir()
+	managed := filepath.Join(realRoot, ".env.age")
+	if err := os.WriteFile(managed, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	aliasParent := t.TempDir()
+	aliasRoot := filepath.Join(aliasParent, "repo-alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Skipf("filesystem aliases are unavailable: %v", err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(realRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveMergePath(canonicalRoot, filepath.Join(aliasRoot, ".env.age"))
+	if err != nil {
+		t.Fatalf("resolve aliased merge path: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("resolved path = %q, want %q", got, want)
+	}
+}
+
 func TestMergeContinueRejectsUnsignedBranchSide(t *testing.T) {
 	repo, bin, identity, mainBranch, env := prepareMergeRepo(t, "A=base\nB=base\n")
 	run(t, repo, "git", "checkout", "-b", "unsigned-side")

@@ -343,8 +343,16 @@ func resolveMergePath(root, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve merge output path: %w", err)
 	}
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || !pathWithinRoot(root, abs) {
+	// secureRootPaths canonicalizes root. Canonicalize Git's existing merge
+	// output too before comparing them: macOS commonly spells the same temp
+	// directory through /var and /private/var, and Windows can expose an
+	// equivalent path through a junction or another filesystem alias.
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve merge output path symlinks: %w", err)
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || !pathWithinRoot(root, resolved) {
 		return "", errors.New("git merge output path is outside the repository")
 	}
 	return config.ResolveManagedPath(root, filepath.ToSlash(rel))
