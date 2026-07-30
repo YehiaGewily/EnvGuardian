@@ -152,6 +152,12 @@ differential suite. Python, Node, and Docker columns are documented reference
 notes, not CI-verified claims. See
 [docs/dotenv-conformance.md](docs/dotenv-conformance.md).
 
+## Documentation
+
+- **[User Guide](docs/USER_GUIDE.md)**: Comprehensive command reference, daily developer workflows, git hooks, diff/merge drivers, and troubleshooting.
+- **[Remediation & Architecture Plan](docs/PLAN.md)**: Authoritative status, stage map, and release verification gates.
+- **[Threat Model](docs/threat-model.md)**: Security boundaries, automatic decryption trust model, and detached signature provenance.
+
 ## Contributing and security
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. Report security
