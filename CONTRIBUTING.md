@@ -39,11 +39,9 @@ rules; they do not depend on a local or tool-specific instruction file.
     errors fail closed; working-tree state must not substitute for staged
     security metadata.
 
-For `v0.1.1`, changes must preserve the single configured plaintext/ciphertext
-pair. Multi-file support returns in `v0.2.0` on top of the transactional
-planner. The planner API is intentionally slice-shaped, but do not enable more
-than one configured pair until crash recovery and multi-file failure testing
-are designed for that release.
+The Stage E single-file boundary has been superseded by v0.2 multi-file support
+on the transactional planner. Changes must preserve plan-before-write behavior
+across every configured pair and must never partially advance the shared lock.
 
 ## Development
 

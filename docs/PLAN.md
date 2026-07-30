@@ -10,7 +10,9 @@ not a demo.
 ## Ground decisions
 
 1. `v0.1.0` is an unreleased development tag. Do not delete it or move it.
-   Fixes ship as `v0.1.1`.
+   `v0.1.1` was not cut before Stage F landed, so the first supported release
+   candidate is `v0.2.0`; this keeps the implemented feature set aligned with
+   semantic versioning.
 2. Automatic decryption must never write outside the repository and never
    inside `.git/`.
 3. Recipient changes must never bypass decrypt-and-compare when ciphertext
@@ -29,8 +31,8 @@ not a demo.
    decryption itself never becomes proof of authorship.
 8. Documentation honesty is a release gate. A false README claim is treated as
    a bug of the same severity as the code it misdescribes.
-9. `v0.1.1` supported one file pair. Stage F restores multi-file support for
-   `v0.2.0` on the proven transactional planner.
+9. The Stage E boundary supported one file pair. Stage F restored multi-file
+   support for `v0.2.0` on the proven transactional planner.
 
 ## Stage map
 
@@ -42,9 +44,11 @@ not a demo.
 | D — Authenticity | 9 | Ciphertext provenance is verifiable | ~1 week |
 | E — Hygiene | 10–12 | Secret-safe output, atomic writes, coherent CLI, and tests | ~1 week |
 | F — Features | 13 | Revocation/rotation, merge driver, and ADRs | ~1.5 weeks |
-| G — Ship | 14 | `v0.1.1` is installable | ~2 days |
+| G — Ship | 14 | `v0.2.0` is installable | ~2 days |
 
-Ship `v0.1.1` after Stage E. Stage F targets `v0.2.0`.
+Stage E originally targeted `v0.1.1`, but that release was never cut. Because
+Stage F is now on `main`, Stage G ships the implemented feature set as
+`v0.2.0` rather than publishing v0.2 behavior under a v0.1 tag.
 
 ## Stage A — Stop the bleeding
 
@@ -107,8 +111,8 @@ statement in the repository describes the current implementation honestly.
   recheck repository containment.
 - [x] Reject plaintext/ciphertext collisions and duplicate destinations,
   including aliases through symlinks or existing hard links.
-- [x] Enforce the `v0.1.1` single-file-pair boundary during remediation; Stage
-  F removes it only after multi-file planner tests pass.
+- [x] Enforce the Stage E single-file-pair boundary during remediation; Stage
+  F removed it only after multi-file planner tests passed.
 - [x] Validate `init --file` before any repository mutation.
 - [x] Route configured encrypt, decrypt, working diff, check, hook, and
   recipient operations through the resolved paths.
@@ -385,3 +389,29 @@ floors now encoded in CI, and verification dependencies are immutable.
 
 **Done:** M3 operates on the same containment, authentication, and transaction
 boundaries as sealing; successful merges cannot leave a falsely current lock.
+
+## Stage G — Ship
+
+### Phase 14 — v0.2.0
+
+- [ ] Run the full test, race, lint, fuzz, coverage, differential, and
+  integration suites on the exact release commit.
+- [x] Run `goreleaser check`, then build and inspect a clean snapshot with six
+  checksum-verified archives and a generated Homebrew cask.
+- [ ] Create `YehiaGewily/homebrew-tap` and configure a fine-grained token
+  scoped only to that repository with Contents read/write.
+- [x] Configure six archives: Linux, macOS, and Windows on amd64 and arm64,
+  plus a committed checksum manifest.
+- [ ] Finalize the changelog, create signed tag `v0.2.0`, and leave `v0.1.0`
+  unchanged.
+- [ ] Verify all six published archives and their checksums.
+- [ ] Install and run one binary on each supported OS; verify
+  `go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.0` and
+  Homebrew from clean environments.
+- [ ] Remove the pre-release warning only after every installation path above
+  is publicly retrievable and verified.
+
+**Release gate:** no open critical or high findings; every advertised command
+exists; every documentation link resolves; branch protection is active; CI is
+green on the exact release commit; coverage floors pass; and a real
+two-developer, two-identity hostile-branch scenario passes end to end.
