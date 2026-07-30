@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-30
+
+First supported release candidate. `v0.1.1` was not cut before the v0.2
+feature set landed, so the project advances directly from the unsafe v0.1.0
+development tag to v0.2.0.
+
+### Added
+
+- Added transactional multi-file configuration on the plural seal planner and
+  a shared lock with one authenticated entry per ciphertext.
+- Added `revoke`, `rotation status`, and `rotation done` with a versioned,
+  key-name-only rotation ledger and explicit Git-history limitations.
+- Added a local semantic merge driver with key-name-only conflicts,
+  authenticated branch inputs, transactional re-encryption, and re-signing.
+- Added ADRs 0001–0008 documenting the cryptographic boundary, identity model,
+  transaction rules, verification split, managed paths, and authentication.
+
 ### Security
 
 - Marked the project unsupported for real secrets while hardening is in
@@ -37,7 +54,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Present invalid signatures fail before plaintext writes with exit code 4.
 - Included signature writes in seal and recipient transactions, verified exact
   signature blobs in checks and hooks, and made Git snapshot reads fail closed.
-  Missing signatures warn during v0.1.x migration and fail starting in v0.2.
+  Missing signatures fail closed in v0.2.0.
 - Removed malformed dotenv fragments, identity/key material, and untrusted
   subprocess output from diagnostics; added sentinel non-disclosure tests.
 - Routed all production writes through the atomic writer, preserved existing
@@ -50,12 +67,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   publishing.
 - Corrected parser conformance, package documentation, milestone status, and
   unimplemented command guidance.
-- Limited `v0.1.1` to one file pair per `--config`, added strict config/version
-  parsing, made commands discover the repository from subdirectories, defined
-  JSON-capable commands, removed the unused `--no-color` flag, and made
-  `--verbose` emit secret-safe command progress.
+- Added strict config/version parsing, made commands discover the repository
+  from subdirectories, defined JSON-capable commands, removed the unused
+  `--no-color` flag, and made `--verbose` emit secret-safe command progress.
 - Added the additive recipient `keys = [...]` schema while retaining legacy
-  `key =` reads; v0.1.1 still rejects multiple GitHub Ed25519 keys explicitly.
+  `key =` reads; explicit duplicate keys are rejected across recipients.
 - Added a bounded GitHub HTTP client, oversized-response rejection, and
   validation of every returned Ed25519 key.
 - Replaced the one-sided Git textconv prototype with a local-only external diff
@@ -100,5 +116,6 @@ and must not be used for real secrets.
 
 See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
 
-[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/YehiaGewily/envguardian/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YehiaGewily/envguardian/tree/v0.1.0
