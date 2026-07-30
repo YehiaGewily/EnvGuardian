@@ -4,9 +4,12 @@ version: 2
 
 project_name: envguardian
 
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+
 before:
   hooks:
-    - go mod tidy
+    - go mod tidy -diff
 
 builds:
   - id: envguardian
@@ -42,7 +45,10 @@ checksum:
   name_template: checksums.txt
 
 snapshot:
-  version_template: "{{ incpatch .Version }}-snapshot"
+  # v0.1.1 was intentionally skipped after the v0.2 feature set landed.
+  # Once v0.2.0 exists, ordinary snapshots resume patch increments.
+  version_template: >-
+    {{ if eq .Version "0.1.0" }}0.2.0-snapshot{{ else }}{{ incpatch .Version }}-snapshot{{ end }}
 
 changelog:
   sort: asc
@@ -52,5 +58,19 @@ changelog:
       - "^test:"
       - "^chore:"
 
-# Homebrew publishing is intentionally disabled until Stage G creates and
-# verifies a real tap. See docs/RELEASING.md.
+homebrew_casks:
+  - name: envguardian
+    ids:
+      - default
+    binaries:
+      - envguardian
+    homepage: "https://github.com/YehiaGewily/EnvGuardian"
+    description: "Safely share age-encrypted dotenv configuration through Git"
+    repository:
+      owner: YehiaGewily
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: actions@github.com
