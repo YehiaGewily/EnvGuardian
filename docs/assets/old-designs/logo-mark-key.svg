@@ -1,0 +1,14 @@
+<svg width="128" height="128" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EnvGuardian">
+  <defs>
+    <linearGradient id="eg-shield-k" x1="16" y1="4" x2="48" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 4C32 4 44 9 52 11C53 11.3 54 12 54 14L54 31C54 45 45 54 32 60C19 54 10 45 10 31L10 14C10 12 11 11.3 12 11C20 9 32 4 32 4Z" fill="url(#eg-shield-k)"/>
+  <path d="M32 4C32 4 44 9 52 11C53 11.3 54 12 54 14L54 31C54 45 45 54 32 60C19 54 10 45 10 31L10 14C10 12 11 11.3 12 11C20 9 32 4 32 4Z" fill="#ffffff" fill-opacity="0.08"/>
+  <circle cx="32" cy="23" r="6.5" stroke="#ffffff" stroke-width="3.5" fill="none"/>
+  <path d="M32 29.5V44" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M32 37H38.5" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M32 43H36.5" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+</svg>

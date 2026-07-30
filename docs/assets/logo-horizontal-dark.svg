@@ -1,0 +1,16 @@
+<svg width="248" height="56" viewBox="0 0 248 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EnvGuardian">
+  <defs>
+    <linearGradient id="eg-hd" x1="16" y1="4" x2="48" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(4 4) scale(0.75)">
+    <path d="M32 4C32 4 44 9 52 11C53 11.3 54 12 54 14L54 31C54 45 45 54 32 60C19 54 10 45 10 31L10 14C10 12 11 11.3 12 11C20 9 32 4 32 4Z" fill="url(#eg-hd)"/>
+    <circle cx="32" cy="26" r="6" fill="#ffffff"/>
+    <path d="M29.8 30L28.3 42.2C28.2 42.7 28.6 43.2 29.1 43.2L34.9 43.2C35.4 43.2 35.8 42.7 35.7 42.2L34.2 30Z" fill="#ffffff"/>
+  </g>
+  <text x="60" y="37" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="29" font-weight="700" letter-spacing="-0.5">
+    <tspan fill="#34D399">Env</tspan><tspan fill="#e2e8f0">Guardian</tspan>
+  </text>
+</svg>
