@@ -394,7 +394,7 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
 
 ### Phase 14 — v0.2.0
 
-- [ ] Run the full test, race, lint, fuzz, coverage, differential, and
+- [x] Run the full test, race, lint, fuzz, coverage, differential, and
   integration suites on the exact release commit.
 - [x] Run `goreleaser check`, then build and inspect a clean snapshot with six
   checksum-verified archives and a generated Homebrew cask.
