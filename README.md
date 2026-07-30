@@ -26,11 +26,12 @@ the CLI from source:
 go run ./cmd/envguardian version
 ```
 
-Do not install hooks from `v0.1.0`. Development code for `v0.1.1` now contains
+Do not install hooks from `v0.1.0`. The `v0.2.0` release candidate contains
 the Stage A path-containment and explicit-acceptance controls, the Stage B
 transactional sealing core, the Stage C fail-closed verification paths, Stage D
 detached SSH signatures, Stage E secret-safe/atomic hygiene and coverage gates,
-and Stage F v0.2 feature work. The project remains unsupported until final
+and Stage F revocation, rotation, merge, and multi-file work. `v0.1.1` was not
+cut before those v0.2 features landed. The project remains unsupported until final
 release verification and repository protection are complete.
 
 ## Current implementation status

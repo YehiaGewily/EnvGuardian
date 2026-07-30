@@ -7,7 +7,8 @@ unreleased development snapshot and must not be used for real secrets.
 
 | Version | Supported |
 |---|---|
-| `main` before the `v0.1.1` hardening release | No — development only |
+| `v0.2.0` release candidate | No — pending Stage G verification |
+| `main` before the `v0.2.0` release | No — development only |
 | `v0.1.0` | No — known unsafe development tag |
 
 ## Known advisory: repository path traversal
@@ -20,7 +21,7 @@ automatic decrypt operation to overwrite a file outside the worktree or inside
 Git's control directory when a recipient runs an installed post-merge or
 post-checkout hook.
 
-The unreleased `v0.1.1` development code resolves every managed path at config
+The unreleased `v0.2.0` candidate resolves every managed path at config
 load, evaluates existing-parent symlinks, rechecks containment, and rejects
 `.git/`. It also validates decrypted dotenv bytes before any plaintext write.
 

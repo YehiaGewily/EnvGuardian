@@ -3,7 +3,7 @@
 EnvGuardian is a key-management and git-integration layer over age. It does not
 implement cryptography and it is not a runtime secrets manager.
 
-This document describes the unreleased `v0.1.1` development boundary. There is
+This document describes the unreleased `v0.2.0` candidate boundary. There is
 currently no supported release.
 
 ## Assets and trust anchors
