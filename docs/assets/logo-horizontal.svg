@@ -1,8 +1,8 @@
 <svg width="248" height="56" viewBox="0 0 248 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EnvGuardian">
   <defs>
     <linearGradient id="eg-h" x1="16" y1="4" x2="48" y2="60" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#34D399"/>
-      <stop offset="1" stop-color="#0D9488"/>
+      <stop offset="0" stop-color="#5B8DC9"/>
+      <stop offset="1" stop-color="#2C5480"/>
     </linearGradient>
   </defs>
   <g transform="translate(4 4) scale(0.75)">
@@ -11,6 +11,6 @@
     <path d="M29.8 30L28.3 42.2C28.2 42.7 28.6 43.2 29.1 43.2L34.9 43.2C35.4 43.2 35.8 42.7 35.7 42.2L34.2 30Z" fill="#ffffff"/>
   </g>
   <text x="60" y="37" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="29" font-weight="700" letter-spacing="-0.5">
-    <tspan fill="#059669">Env</tspan><tspan fill="#1e293b">Guardian</tspan>
+    <tspan fill="#3B6EA5">Env</tspan><tspan fill="#1e293b">Guardian</tspan>
   </text>
 </svg>

@@ -1,8 +1,8 @@
 <svg width="128" height="128" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EnvGuardian">
   <defs>
     <linearGradient id="eg-shield" x1="16" y1="4" x2="48" y2="60" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#34D399"/>
-      <stop offset="1" stop-color="#0D9488"/>
+      <stop offset="0" stop-color="#5B8DC9"/>
+      <stop offset="1" stop-color="#2C5480"/>
     </linearGradient>
   </defs>
   <path d="M32 4C32 4 44 9 52 11C53 11.3 54 12 54 14L54 31C54 45 45 54 32 60C19 54 10 45 10 31L10 14C10 12 11 11.3 12 11C20 9 32 4 32 4Z" fill="url(#eg-shield)"/>

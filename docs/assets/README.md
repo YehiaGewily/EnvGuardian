@@ -39,9 +39,10 @@ rejects inline SVG.
 
 ## Colors
 
-- Emerald 400 `#34D399` — gradient start
-- Teal 600 `#0D9488` — gradient end
-- Emerald 600 `#059669` — the "Env" in the wordmark
+- Steel 400 `#5B8DC9` — gradient start
+- Steel 700 `#2C5480` — gradient end
+- Steel 500 `#3B6EA5` — the "Env" in the light wordmark
+- Steel 300 `#7DA9DA` — the "Env" in the dark wordmark
 - Slate 800 `#1E293B` — the "Guardian" in the light wordmark
 - Slate 200 `#E2E8F0` — the "Guardian" in the dark wordmark
 
