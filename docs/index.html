@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EnvGuardian — commit your team's .env to git, encrypted</title>
+  <meta name="description"
+    content="A small CLI that lets a team commit its .env to git, encrypted to each developer's public key. A key-management layer over age(1). Pre-release.">
+  <meta name="theme-color" content="#0B1210" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F7F5F0" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="assets/favicon.ico">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <style>
+    /* ---------- tokens ---------- */
+    :root {
+      --paper: #F7F5F0;
+      --paper-2: #EFEBE1;
+      --ink: #0F1512;
+      --ink-2: #2A322E;
+      --muted: #5A6560;
+      --rule: #D8D3C5;
+      --accent: #3B6EA5;
+      --accent-2: #2C5480;
+      --warn-bg: #FEF3E4;
+      --warn-ink: #7C3F0B;
+      --warn-line: #E6C48D;
+      --code-bg: #FDFCF8;
+      --shadow: 0 1px 0 rgba(15, 21, 18, .04), 0 12px 32px -18px rgba(15, 21, 18, .18);
+      --surface: rgba(255, 255, 255, .48);
+      --surface-2: rgba(255, 255, 255, .74);
+      --accent-soft: rgba(59, 110, 165, .10);
+      --glow: rgba(59, 110, 165, .17);
+      --radius: 14px;
+
+      --serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
+
+      --measure: 62ch;
+      --step-1: 0.8125rem;
+      --step0: 1rem;
+      --step1: 1.125rem;
+      --step2: 1.375rem;
+      --step3: 1.75rem;
+      --step4: 2.25rem;
+      --step5: 3.25rem;
+      --step6: 4.5rem;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0B1210;
+        --paper-2: #131B18;
+        --ink: #E7EDE9;
+        --ink-2: #C9D2CE;
+        --muted: #8F9994;
+        --rule: #24302B;
+        --accent: #7DA9DA;
+        --accent-2: #A9C9E8;
+        --warn-bg: #2A1D0C;
+        --warn-ink: #F5C77C;
+        --warn-line: #5A3E12;
+        --code-bg: #0E1613;
+        --shadow: 0 1px 0 rgba(0, 0, 0, .4), 0 20px 40px -20px rgba(0, 0, 0, .7);
+        --surface: rgba(19, 27, 24, .56);
+        --surface-2: rgba(19, 27, 24, .88);
+        --accent-soft: rgba(125, 169, 218, .10);
+        --glow: rgba(125, 169, 218, .14);
+      }
+    }
+
+    :root[data-theme="light"] {
+      --paper: #F7F5F0;
+      --paper-2: #EFEBE1;
+      --ink: #0F1512;
+      --ink-2: #2A322E;
+      --muted: #5A6560;
+      --rule: #D8D3C5;
+      --accent: #3B6EA5;
+      --accent-2: #2C5480;
+      --warn-bg: #FEF3E4;
+      --warn-ink: #7C3F0B;
+      --warn-line: #E6C48D;
+      --code-bg: #FDFCF8;
+      --shadow: 0 1px 0 rgba(15, 21, 18, .04), 0 12px 32px -18px rgba(15, 21, 18, .18);
+      --surface: rgba(255, 255, 255, .48);
+      --surface-2: rgba(255, 255, 255, .74);
+      --accent-soft: rgba(59, 110, 165, .10);
+      --glow: rgba(59, 110, 165, .17);
+    }
+
+    :root[data-theme="dark"] {
+      --paper: #0B1210;
+      --paper-2: #131B18;
+      --ink: #E7EDE9;
+      --ink-2: #C9D2CE;
+      --muted: #8F9994;
+      --rule: #24302B;
+      --accent: #7DA9DA;
+      --accent-2: #A9C9E8;
+      --warn-bg: #2A1D0C;
+      --warn-ink: #F5C77C;
+      --warn-line: #5A3E12;
+      --code-bg: #0E1613;
+      --shadow: 0 1px 0 rgba(0, 0, 0, .4), 0 20px 40px -20px rgba(0, 0, 0, .7);
+      --surface: rgba(19, 27, 24, .56);
+      --surface-2: rgba(19, 27, 24, .88);
+      --accent-soft: rgba(125, 169, 218, .10);
+      --glow: rgba(125, 169, 218, .14);
+    }
+
+    /* ---------- reset & base ---------- */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
+      scroll-behavior: smooth;
+      color-scheme: light dark;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: var(--step0);
+      line-height: 1.6;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 78% 8%, var(--glow), transparent 28rem),
+        radial-gradient(circle at 8% 38%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 24rem),
+        var(--paper);
+      min-width: 320px;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(var(--rule) 1px, transparent 1px),
+        linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 58%);
+    }
+
+    .skip-link {
+      position: fixed;
+      left: 16px;
+      top: 12px;
+      z-index: 100;
+      transform: translateY(-160%);
+      padding: 9px 14px;
+      border-radius: 8px;
+      background: var(--ink);
+      color: var(--paper);
+      font-weight: 600;
+    }
+
+    .skip-link:focus {
+      transform: none;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color .15s ease;
+    }
+
+    a:hover {
+      border-bottom-color: var(--accent);
+    }
+
+    a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+      border-radius: 2px;
+    }
+
+    ::selection {
+      background: var(--accent);
+      color: var(--paper);
+    }
+
+    h1,
+    h2,
+    h3 {
+      font-family: var(--serif);
+      color: var(--ink);
+      font-weight: 500;
+      text-wrap: balance;
+      letter-spacing: -0.005em;
+      margin: 0;
+    }
+
+    p {
+      margin: 0;
+      max-width: var(--measure);
+    }
+
+    code,
+    pre,
+    kbd {
+      font-family: var(--mono);
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-feature-settings: "liga" 0;
+    }
+
+    /* ---------- prerelease strip ---------- */
+    .prerelease {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border-bottom: 1px solid var(--warn-line);
+      font-size: var(--step-1);
+      line-height: 1.5;
+    }
+
+    .prerelease .inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 10px 32px;
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+
+    .prerelease .tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border: 1px solid currentColor;
+      border-radius: 3px;
+      opacity: .85;
+    }
+
+    .prerelease a {
+      color: var(--warn-ink);
+      border-bottom-color: currentColor;
+    }
+
+    /* ---------- masthead ---------- */
+    .masthead {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 32px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--rule);
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--ink);
+      border: none;
+    }
+
+    .brand svg {
+      width: 30px;
+      height: 30px;
+      flex-shrink: 0;
+    }
+
+    .brand .name {
+      font-family: var(--serif);
+      font-size: 1.375rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .brand .name em {
+      color: var(--accent);
+      font-style: normal;
+    }
+
+    .nav {
+      display: flex;
+      gap: 28px;
+      font-size: var(--step-1);
+    }
+
+    .nav a {
+      color: var(--ink-2);
+      border: none;
+    }
+
+    .nav a:hover {
+      color: var(--accent);
+    }
+
+    .theme-toggle {
+      width: 34px;
+      height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--rule);
+      border-radius: 50%;
+      color: var(--ink-2);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color .15s ease, color .15s ease, transform .15s ease;
+    }
+
+    .theme-toggle:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      transform: rotate(8deg);
+    }
+
+    .theme-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .theme-toggle svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .theme-toggle .sun,
+    :root[data-theme="light"] .theme-toggle .moon {
+      display: none;
+    }
+
+    :root[data-theme="light"] .theme-toggle .sun {
+      display: block;
+    }
+
+    /* ---------- generic sections ---------- */
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 32px;
+    }
+
+    section {
+      padding: 72px 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    section:last-of-type {
+      border-bottom: none;
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    /* ---------- hero ---------- */
+    .hero {
+      padding-top: 64px;
+      padding-bottom: 88px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+      gap: 56px;
+      align-items: start;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 4.2vw, var(--step5));
+      line-height: 1.08;
+      margin: 12px 0 24px;
+    }
+
+    .hero h1 .m {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+    }
+
+    .hero .lede {
+      font-size: var(--step1);
+      color: var(--ink-2);
+      line-height: 1.55;
+      max-width: 34ch;
+    }
+
+    .hero .lede em {
+      color: var(--ink);
+      font-style: italic;
+    }
+
+    .hero .signature {
+      margin-top: 32px;
+      font-size: var(--step-1);
+      color: var(--muted);
+      font-family: var(--mono);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .hero .signature .dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .proofs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 28px;
+      max-width: 38rem;
+    }
+
+    .proof {
+      padding: 12px 13px;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      font-family: var(--mono);
+    }
+
+    .proof strong {
+      display: block;
+      color: var(--ink);
+      font-size: var(--step-1);
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+
+    .hero-cta {
+      margin-top: 32px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      font-family: var(--sans);
+      font-size: var(--step-1);
+      font-weight: 500;
+      border-radius: 3px;
+      border: 1px solid var(--ink);
+      color: var(--paper);
+      background: var(--ink);
+      transition: transform .08s ease;
+    }
+
+    .btn:hover {
+      border-bottom-color: var(--ink);
+      transform: translateY(-1px);
+    }
+
+    .btn.ghost {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--rule);
+    }
+
+    .btn.ghost:hover {
+      border-color: var(--ink);
+    }
+
+    .btn .arrow {
+      transition: transform .15s ease;
+    }
+
+    .btn:hover .arrow {
+      transform: translateX(2px);
+    }
+
+    /* ---------- hero demo (the transformation) ---------- */
+    .demo {
+      background: var(--code-bg);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+    }
+
+    .demo .bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--rule);
+      background: var(--paper-2);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .demo .bar .dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .demo .bar .dots i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--rule);
+      display: inline-block;
+    }
+
+    .demo .bar .path {
+      margin-left: auto;
+      text-transform: none;
+      letter-spacing: 0;
+      font-family: var(--mono);
+    }
+
+    .demo .content {
+      padding: 22px 22px 24px;
+      overflow-x: auto;
+    }
+
+    .transform {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .slab {
+      min-width: 0;
+    }
+
+    .slab .file {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .slab .file .fname {
+      text-transform: none;
+      letter-spacing: 0;
+      font-family: var(--mono);
+      color: var(--ink-2);
+      font-size: var(--step-1);
+    }
+
+    .slab .badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      letter-spacing: 0.08em;
+    }
+
+    .badge.ignored {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid var(--warn-line);
+    }
+
+    .badge.tracked {
+      background: rgba(59, 110, 165, .10);
+      color: var(--accent-2);
+      border: 1px solid rgba(59, 110, 165, .3);
+    }
+
+    .slab pre {
+      margin: 0;
+      color: var(--ink-2);
+      line-height: 1.7;
+      font-size: 0.875rem;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      overflow-x: hidden;
+    }
+
+    .slab .key {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .slab .val {
+      color: var(--muted);
+    }
+
+    .slab .cipher {
+      color: var(--muted);
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+
+    .slab .cipher .h {
+      color: var(--ink-2);
+    }
+
+    .arrow-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      gap: 6px;
+      padding-top: 26px;
+    }
+
+    .arrow-col svg {
+      width: 26px;
+      height: 12px;
+    }
+
+    .arrow-col .label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    /* ---------- three questions ---------- */
+    .questions h2 {
+      font-size: var(--step4);
+      max-width: 22ch;
+      margin-bottom: 8px;
+    }
+
+    .questions .sub {
+      color: var(--ink-2);
+      font-size: var(--step1);
+      margin-bottom: 40px;
+    }
+
+    .qtable {
+      border-top: 1px solid var(--ink);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .qrow {
+      display: grid;
+      grid-template-columns: 3fr 5fr 3fr;
+      gap: 24px;
+      align-items: baseline;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .qrow:last-child {
+      border-bottom: none;
+    }
+
+    .qrow .q {
+      font-family: var(--serif);
+      font-size: var(--step2);
+      color: var(--ink);
+    }
+
+    .qrow .a {
+      color: var(--ink-2);
+      font-size: var(--step1);
+    }
+
+    .qrow .file {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--accent);
+      text-align: right;
+    }
+
+    /* ---------- filetree ---------- */
+    .filetree {
+      display: grid;
+      grid-template-columns: 4fr 5fr;
+      gap: 56px;
+      align-items: start;
+    }
+
+    .filetree h2 {
+      font-size: var(--step4);
+      max-width: 18ch;
+      margin-bottom: 16px;
+    }
+
+    .filetree .lede {
+      color: var(--ink-2);
+      font-size: var(--step1);
+      margin-bottom: 20px;
+    }
+
+    .tree {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      line-height: 2;
+      background: var(--code-bg);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 22px 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .tree ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .tree li {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .tree .dir {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .tree .file {
+      color: var(--ink-2);
+      padding-left: 20px;
+    }
+
+    .tree .file.local {
+      color: var(--muted);
+      text-decoration: line-through;
+      text-decoration-color: var(--warn-line);
+      text-decoration-thickness: 1px;
+      padding-left: 20px;
+    }
+
+    .tree .pill {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+      border-radius: 2px;
+      font-family: var(--mono);
+    }
+
+    .pill.git {
+      background: rgba(59, 110, 165, .12);
+      color: var(--accent-2);
+      border: 1px solid rgba(59, 110, 165, .28);
+    }
+
+    .pill.no {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid var(--warn-line);
+    }
+
+    .tree .comment {
+      color: var(--muted);
+      font-style: italic;
+      padding-left: 20px;
+    }
+
+    /* ---------- workflow ---------- */
+    .workflow .top {
+      display: grid;
+      grid-template-columns: 4fr 5fr;
+      gap: 56px;
+      align-items: end;
+      margin-bottom: 32px;
+    }
+
+    .workflow h2 {
+      font-size: var(--step4);
+      max-width: 20ch;
+    }
+
+    .workflow .top .sub {
+      color: var(--ink-2);
+      font-size: var(--step1);
+    }
+
+    .session {
+      background: var(--code-bg);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 24px 26px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      line-height: 1.75;
+      box-shadow: var(--shadow);
+      color: var(--ink-2);
+    }
+
+    .session .prompt {
+      color: var(--accent);
+      user-select: none;
+    }
+
+    .session .cmd {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .session .out {
+      color: var(--muted);
+    }
+
+    .session .em {
+      color: var(--ink-2);
+    }
+
+    .session .ok {
+      color: var(--accent-2);
+    }
+
+    .session .warn {
+      color: var(--warn-ink);
+    }
+
+    .session hr {
+      border: none;
+      border-top: 1px dashed var(--rule);
+      margin: 14px 0;
+    }
+
+    /* ---------- not-this ---------- */
+    .notthis .top {
+      display: grid;
+      grid-template-columns: 4fr 5fr;
+      gap: 56px;
+      align-items: end;
+      margin-bottom: 32px;
+    }
+
+    .notthis h2 {
+      font-size: var(--step4);
+      max-width: 22ch;
+    }
+
+    .notthis .sub {
+      color: var(--ink-2);
+      font-size: var(--step1);
+    }
+
+    .notthis .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-top: 1px solid var(--ink);
+    }
+
+    .notthis .col {
+      padding: 24px 0;
+    }
+
+    .notthis .col+.col {
+      border-left: 1px solid var(--rule);
+      padding-left: 40px;
+    }
+
+    .notthis .col:first-child {
+      padding-right: 40px;
+    }
+
+    .notthis .col h3 {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .notthis .col.left h3 {
+      color: var(--warn-ink);
+    }
+
+    .notthis .col.right h3 {
+      color: var(--accent-2);
+    }
+
+    .notthis ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .notthis li {
+      color: var(--ink-2);
+      font-size: var(--step0);
+      line-height: 1.5;
+    }
+
+    .notthis .col.left li::before {
+      content: "×  ";
+      color: var(--warn-ink);
+      font-family: var(--mono);
+    }
+
+    .notthis .col.right li::before {
+      content: "→  ";
+      color: var(--accent-2);
+      font-family: var(--mono);
+    }
+
+    /* ---------- honesty ---------- */
+    .honesty {
+      padding-top: 84px;
+      padding-bottom: 84px;
+    }
+
+    .honesty-grid {
+      display: grid;
+      grid-template-columns: 4fr 6fr;
+      gap: 56px;
+      align-items: start;
+    }
+
+    .honesty h2 {
+      font-size: var(--step4);
+      max-width: 18ch;
+      margin-bottom: 14px;
+    }
+
+    .honesty .lede {
+      color: var(--ink-2);
+      font-size: var(--step1);
+    }
+
+    .gates {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .gate {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--rule);
+      align-items: baseline;
+    }
+
+    .gate .status {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+
+    .gate .status.done {
+      background: rgba(59, 110, 165, .12);
+      color: var(--accent-2);
+      border: 1px solid rgba(59, 110, 165, .3);
+    }
+
+    .gate .status.todo {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid var(--warn-line);
+    }
+
+    .gate p {
+      color: var(--ink-2);
+      font-size: var(--step0);
+      margin: 0;
+    }
+
+    .gate .note {
+      color: var(--muted);
+      font-size: var(--step-1);
+    }
+
+    .honesty .see-plan {
+      margin-top: 32px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--muted);
+    }
+
+    /* ---------- visual polish ---------- */
+    .masthead {
+      position: sticky;
+      top: 14px;
+      z-index: 30;
+      margin-top: 14px;
+      padding: 13px 18px;
+      border: 1px solid color-mix(in srgb, var(--rule) 78%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 82%, transparent);
+      backdrop-filter: blur(18px) saturate(140%);
+      box-shadow: 0 12px 35px -28px rgba(0, 0, 0, .7);
+    }
+
+    .brand .name {
+      font-size: 1.25rem;
+    }
+
+    .nav {
+      gap: 5px;
+      align-items: center;
+    }
+
+    .nav a {
+      padding: 7px 10px;
+      border-radius: 8px;
+      transition: color .15s ease, background .15s ease;
+    }
+
+    .nav a:hover {
+      background: var(--accent-soft);
+    }
+
+    .hero {
+      padding-top: 92px;
+      padding-bottom: 104px;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 16rem;
+      height: 16rem;
+      right: 10%;
+      top: 10%;
+      background: var(--glow);
+      filter: blur(80px);
+      border-radius: 50%;
+      z-index: -1;
+    }
+
+    .hero-grid {
+      grid-template-columns: minmax(0, .9fr) minmax(34rem, 1.1fr);
+      gap: 72px;
+      align-items: center;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.7rem, 5vw, 4.7rem);
+      line-height: 1.01;
+      letter-spacing: -.035em;
+    }
+
+    .hero .lede {
+      max-width: 42ch;
+    }
+
+    .btn {
+      border-radius: 9px;
+      padding: 11px 18px;
+      box-shadow: 0 8px 22px -18px rgba(0, 0, 0, .8);
+    }
+
+    .btn.ghost {
+      background: var(--surface);
+    }
+
+    .demo {
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--code-bg) 92%, transparent);
+      box-shadow: 0 30px 80px -48px rgba(0, 0, 0, .9), 0 0 0 1px color-mix(in srgb, var(--accent) 7%, transparent);
+    }
+
+    .demo .bar {
+      padding: 12px 16px;
+    }
+
+    .demo .content {
+      padding: 28px;
+    }
+
+    .questions,
+    .workflow,
+    .honesty {
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+      box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--surface) 76%, transparent);
+      clip-path: inset(0 -100vmax);
+    }
+
+    .qtable {
+      border: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      counter-reset: question;
+    }
+
+    .qrow {
+      counter-increment: question;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 24px;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      min-height: 16rem;
+      position: relative;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+
+    .qrow::before {
+      content: "0" counter(question);
+      font: 600 11px/1 var(--mono);
+      color: var(--accent);
+      letter-spacing: .12em;
+    }
+
+    .qrow:hover {
+      transform: translateY(-3px);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
+      box-shadow: var(--shadow);
+    }
+
+    .qrow .q {
+      font-size: 1.55rem;
+      line-height: 1.18;
+    }
+
+    .qrow .a {
+      font-size: var(--step0);
+    }
+
+    .qrow .file {
+      text-align: left;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule);
+      width: 100%;
+    }
+
+    .tree,
+    .session {
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--code-bg) 92%, transparent);
+    }
+
+    .tree {
+      padding: 28px 30px;
+    }
+
+    .session {
+      padding: 30px 32px;
+    }
+
+    .notthis .cols {
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .notthis .col {
+      padding: 28px 32px;
+    }
+
+    .notthis .col:first-child {
+      padding-right: 32px;
+      background: color-mix(in srgb, var(--warn-bg) 50%, transparent);
+    }
+
+    .notthis .col+.col {
+      padding-left: 32px;
+      background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+    }
+
+    .gate {
+      padding: 18px 0;
+    }
+
+    footer {
+      background: color-mix(in srgb, var(--paper-2) 42%, transparent);
+    }
+
+    /* ---------- footer ---------- */
+    footer {
+      padding: 56px 0 72px;
+      border-top: 1px solid var(--rule);
+      color: var(--muted);
+      font-size: var(--step-1);
+    }
+
+    footer .cols {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+
+    footer h4 {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink);
+      margin: 0 0 14px;
+      font-weight: 500;
+    }
+
+    footer ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    footer a {
+      color: var(--ink-2);
+      border: none;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    footer .colofon {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-top: 24px;
+      border-top: 1px solid var(--rule);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    footer .colofon .made {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--muted);
+    }
+
+    footer .colofon .made em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 900px) {
+
+      .hero-grid,
+      .filetree,
+      .workflow .top,
+      .notthis .top,
+      .honesty-grid {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+
+      .qrow {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 18px 0;
+      }
+
+      .qrow .file {
+        text-align: left;
+      }
+
+      .notthis .cols {
+        grid-template-columns: 1fr;
+      }
+
+      .notthis .col+.col {
+        border-left: none;
+        border-top: 1px solid var(--rule);
+        padding-left: 0;
+        padding-top: 24px;
+      }
+
+      .notthis .col:first-child {
+        padding-right: 0;
+        padding-bottom: 24px;
+      }
+
+      footer .cols {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      section {
+        padding: 56px 0;
+      }
+
+      .transform {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow-col {
+        flex-direction: row;
+        padding-top: 0;
+      }
+
+      .arrow-col svg {
+        transform: rotate(90deg);
+      }
+
+      .hero-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .qtable {
+        grid-template-columns: 1fr;
+      }
+
+      .qrow {
+        min-height: 0;
+      }
+    }
+
+    @media (max-width: 560px) {
+
+      .wrap,
+      .masthead,
+      .prerelease .inner {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      footer .cols {
+        grid-template-columns: 1fr;
+      }
+
+      .hero h1 {
+        font-size: 2rem;
+      }
+
+      .prerelease .inner {
+        padding-top: 9px;
+        padding-bottom: 9px;
+        gap: 7px;
+      }
+
+      .prerelease .inner span:nth-of-type(3) {
+        display: none;
+      }
+
+      .masthead {
+        top: 8px;
+        margin: 8px 12px 0;
+        padding: 11px 13px;
+      }
+
+      .brand .name {
+        font-size: 1.05rem;
+      }
+
+      .nav {
+        margin-left: auto;
+      }
+
+      .nav a {
+        display: none;
+      }
+
+      .theme-toggle {
+        display: inline-grid;
+      }
+
+      .hero {
+        padding-top: 64px;
+        padding-bottom: 72px;
+      }
+
+      .hero h1 {
+        font-size: clamp(2.35rem, 13vw, 3.4rem);
+      }
+
+      .hero .lede {
+        font-size: var(--step0);
+      }
+
+      .proofs {
+        grid-template-columns: 1fr;
+      }
+
+      .demo .content,
+      .session,
+      .tree {
+        padding: 20px;
+      }
+
+      .qrow {
+        padding: 20px;
+      }
+    }
+
+    /* ---------- motion ---------- */
+    @keyframes fade-up {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .hero>*,
+    .hero .demo {
+      animation: fade-up .5s ease both;
+    }
+
+    .hero .hero-copy {
+      animation-delay: 0s;
+    }
+
+    .hero .demo {
+      animation-delay: .12s;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ---------- pre-release strip: highest on the page, unmissable ---------- -->
+  <div class="prerelease" role="note">
+    <div class="inner">
+      <span class="tag">Pre-release</span>
+      <span><strong>v0.2.0</strong> is a release candidate — security hardening and release verification are still
+        open.</span>
+      <span>Don't hold real secrets in it yet.</span>
+      <a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/PLAN.md">See status →</a>
+    </div>
+  </div>
+
+  <!-- ---------- masthead ---------- -->
+  <header class="masthead">
+    <a class="brand" href="./">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="s" x1="16" y1="4" x2="48" y2="60" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#5B8DC9" />
+            <stop offset="1" stop-color="#2C5480" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M32 4C32 4 44 9 52 11C53 11.3 54 12 54 14L54 31C54 45 45 54 32 60C19 54 10 45 10 31L10 14C10 12 11 11.3 12 11C20 9 32 4 32 4Z"
+          fill="url(#s)" />
+        <circle cx="32" cy="26" r="6" fill="#fff" />
+        <path d="M29.8 30L28.3 42.2C28.2 42.7 28.6 43.2 29.1 43.2L34.9 43.2C35.4 43.2 35.8 42.7 35.7 42.2L34.2 30Z"
+          fill="#fff" />
+      </svg>
+      <span class="name"><em>Env</em>Guardian</span>
+    </a>
+    <nav class="nav" aria-label="primary">
+      <a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/USER_GUIDE.md">User&nbsp;Guide</a>
+      <a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/threat-model.md">Threat&nbsp;Model</a>
+      <a href="https://github.com/YehiaGewily/EnvGuardian">Source</a>
+      <button class="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">
+        <svg class="moon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M20 15.4A8.5 8.5 0 0 1 8.6 4a8.5 8.5 0 1 0 11.4 11.4Z" stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.8" />
+          <path
+            d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+      </button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- ---------- hero: the actual transformation ---------- -->
+    <section class="hero wrap" aria-labelledby="hero-h">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">A CLI over age(1) — MIT</p>
+          <h1 id="hero-h">Commit your team's <span class="m">.env</span> to git — encrypted.</h1>
+          <p class="lede">
+            Small teams don't need a secrets manager. They need <em>one file</em>, versioned with the code,
+            readable by exactly the right people. That's the whole tool.
+          </p>
+          <div class="hero-cta">
+            <a class="btn" href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/USER_GUIDE.md">
+              Read the User Guide <span class="arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="btn ghost" href="https://github.com/YehiaGewily/EnvGuardian">
+              View on GitHub
+            </a>
+          </div>
+          <p class="signature">
+            <span>Go 1.24+</span><span class="dot"></span>
+            <span>Linux · macOS · Windows</span><span class="dot"></span>
+            <span>~2k SLOC</span>
+          </p>
+          <div class="proofs" aria-label="Project principles">
+            <div class="proof"><strong>age-native</strong>No custom cryptography</div>
+            <div class="proof"><strong>git-reviewable</strong>Access changes in normal PRs</div>
+            <div class="proof"><strong>fail-closed</strong>Unverifiable means non-zero</div>
+          </div>
+        </div>
+
+        <aside class="demo" aria-label="Example transformation">
+          <div class="bar">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span class="path">.envguardian → the same directory, after `envguardian encrypt`</span>
+          </div>
+          <div class="content">
+            <div class="transform">
+              <!-- LEFT: plaintext (gitignored) -->
+              <div class="slab">
+                <div class="file"><span class="fname">.env</span><span class="badge ignored">gitignored</span></div>
+                <pre><span class="key">STRIPE_SECRET_KEY</span>=<span class="val">sk_live_51N2fZ…</span>
+<span class="key">DATABASE_URL</span>=<span class="val">postgres://app:…</span>
+<span class="key">JWT_SIGNING_SECRET</span>=<span class="val">a91c…</span>
+<span class="key">SENTRY_DSN</span>=<span class="val">https://…</span>
+<span class="key">S3_BUCKET</span>=<span class="val">acme-prod-uploads</span></pre>
+              </div>
+
+              <!-- ARROW -->
+              <div class="arrow-col" aria-hidden="true">
+                <svg viewBox="0 0 26 12" fill="none">
+                  <path d="M0 6 H22 M17 1 L22 6 L17 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                    stroke-linejoin="round" />
+                </svg>
+                <span class="label">encrypt</span>
+              </div>
+
+              <!-- RIGHT: ciphertext (committed) -->
+              <div class="slab">
+                <div class="file"><span class="fname">.env.age</span><span class="badge tracked">committed</span></div>
+                <pre class="cipher"><span class="h">-----BEGIN AGE ENCRYPTED FILE-----</span>
+YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IHNzaC1lZDI1NTE5
+IHVDbFRvUSBFOEZUV3RXWkxQTWRLQVpZVUx2QkYzUW9CMEFP
+YzhKR0hGWlZaQjRXd0cwCmp1eGpNaW1FNTFrTVBEMHVLdlpi
+K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
+<span class="h">-----END AGE ENCRYPTED FILE-----</span></pre>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------- three questions ---------- -->
+    <section class="questions wrap">
+      <p class="eyebrow">The mental model</p>
+      <h2>Three questions decide everything the tool does.</h2>
+      <p class="sub">If you know the answers, you can predict exactly what any command will do — and, more importantly,
+        what it will refuse to do.</p>
+
+      <div class="qtable" role="table">
+        <div class="qrow" role="row">
+          <div class="q" role="cell">Who can decrypt?</div>
+          <div class="a" role="cell">A short, reviewable list of public keys. Adding or revoking someone is a normal
+            code review.</div>
+          <div class="file" role="cell">recipients.toml</div>
+        </div>
+        <div class="qrow" role="row">
+          <div class="q" role="cell">What is the secret?</div>
+          <div class="a" role="cell">The encrypted bytes. Sealed with <span class="mono">age(1)</span> — no crypto
+            invented here.</div>
+          <div class="file" role="cell">.env.age</div>
+        </div>
+        <div class="qrow" role="row">
+          <div class="q" role="cell">Is it authentic and current?</div>
+          <div class="a" role="cell">A detached SSH signature over the ciphertext, plus a lock that binds fingerprints
+            to exact digests.</div>
+          <div class="file" role="cell">.env.age.sig&nbsp;·&nbsp;lock.toml</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- file tree ---------- -->
+    <section class="wrap">
+      <div class="filetree">
+        <div>
+          <p class="eyebrow">Anatomy</p>
+          <h2>What actually lives in your repo.</h2>
+          <p class="lede">
+            Nothing hidden, nothing surprising. A directory of TOML files, an <span class="mono">.age</span>
+            blob per environment, and a detached signature. Everything a reviewer needs to look at is a
+            plaintext file already tracked in git.
+          </p>
+          <p class="lede" style="margin-top:14px;color:var(--muted);font-size:var(--step0)">
+            The one file that <em>never</em> ships is the plaintext. <span class="mono">init</span> adds it
+            to <span class="mono">.gitignore</span> for you.
+          </p>
+        </div>
+        <div class="tree" aria-label="Repository file layout">
+          <ul>
+            <li><span class="dir">.envguardian/</span><span></span></li>
+            <li><span class="file">├─ config.toml</span><span class="pill git">git</span></li>
+            <li><span class="file">├─ recipients.toml</span><span class="pill git">git</span></li>
+            <li><span class="file">├─ lock.toml</span><span class="pill git">git</span></li>
+            <li><span class="file">├─ rotation.toml</span><span class="pill git">git</span></li>
+            <li><span class="file local">└─ auto-decrypt-state.toml</span><span class="pill no">local only</span></li>
+            <li>&nbsp;</li>
+            <li><span class="file" style="padding-left:0">.env.age</span><span class="pill git">git</span></li>
+            <li><span class="file" style="padding-left:0">.env.age.sig</span><span class="pill git">git</span></li>
+            <li><span class="file local" style="padding-left:0">.env</span><span class="pill no">gitignored</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- workflow: a real session ---------- -->
+    <section class="workflow wrap">
+      <div class="top">
+        <div>
+          <p class="eyebrow">A day in the life</p>
+          <h2>What using it actually looks like.</h2>
+        </div>
+        <p class="sub">
+          From cloning the repo to shipping a new secret, this is the entire flow — no additional CLI to learn,
+          no dashboards to log into.
+        </p>
+      </div>
+
+      <div class="session" aria-label="Terminal session">
+        <span class="out"># You just cloned a repo. Your teammates have already committed .env.age.</span>
+        <span class="prompt">$</span> <span class="cmd">go run ./cmd/envguardian decrypt</span>
+        <span class="em">decrypted .env.age → .env</span>
+
+        <hr>
+
+        <span class="out"># You edit .env locally, then re-encrypt. Idempotent — no diff if nothing changed.</span>
+        <span class="prompt">$</span> <span class="cmd">envguardian encrypt</span>
+        <span class="em">encrypted .env → .env.age</span>
+
+        <span class="prompt">$</span> <span class="cmd">git add .env.age .env.age.sig .envguardian/lock.toml</span>
+        <span class="prompt">$</span> <span class="cmd">git commit -m "feat(config): add API_RATE_LIMIT"</span>
+
+        <hr>
+
+        <span class="out"># Someone else pulls. Config changed, so hooks pause — no silent overwrite.</span>
+        <span class="prompt">$</span> <span class="cmd">git pull</span>
+        <span class="warn">envguardian: managed inputs changed (recipients.toml, .env.age).</span>
+        <span class="warn"> review the change, then run: envguardian decrypt --accept-changes</span>
+
+        <span class="prompt">$</span> <span class="cmd">envguardian decrypt --accept-changes</span>
+        <span class="ok">✓ accepted commit 4e2a1c; decrypted .env.age → .env</span>
+      </div>
+    </section>
+
+    <!-- ---------- not this / use this ---------- -->
+    <section class="notthis wrap">
+      <div class="top">
+        <div>
+          <p class="eyebrow">Scope discipline</p>
+          <h2>What EnvGuardian isn't.</h2>
+        </div>
+        <p class="sub">
+          Deliberately narrow. The whole reason a small tool can be careful and finishable is that it
+          says no to the things it isn't. If you need any of the below, reach for the right side.
+        </p>
+      </div>
+
+      <div class="cols">
+        <div class="col left">
+          <h3>Not this</h3>
+          <ul>
+            <li>A runtime secrets manager</li>
+            <li>Production secret injection</li>
+            <li>A server or SaaS</li>
+            <li>Storage for large or binary secrets</li>
+            <li>Compliance and audit tooling</li>
+          </ul>
+        </div>
+        <div class="col right">
+          <h3>Use instead</h3>
+          <ul>
+            <li>HashiCorp Vault, AWS Secrets Manager</li>
+            <li>Your cloud provider's parameter store</li>
+            <li>There is no server. That's the point.</li>
+            <li>Object storage with its own encryption</li>
+            <li>IAM with audit logs</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- honesty: release status ---------- -->
+    <section class="honesty wrap">
+      <div class="honesty-grid">
+        <div>
+          <p class="eyebrow">Where the work stands</p>
+          <h2>An honest release status.</h2>
+          <p class="lede">
+            v0.1.0 was a development tag with known critical findings. v0.2.0 is a release candidate — the
+            implementation work is done; the launch verification is not. This isn't marketing copy, it's the
+            tracked plan.
+          </p>
+          <p class="see-plan">→ full plan in <a
+              href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/PLAN.md">docs/PLAN.md</a></p>
+        </div>
+
+        <div class="gates">
+          <div class="gate">
+            <span class="status done">done</span>
+            <div>
+              <p>Path containment, transactional sealing, fail-closed verification, detached SSH signatures, secret-safe
+                diagnostics, atomic writes.</p>
+            </div>
+          </div>
+          <div class="gate">
+            <span class="status done">done</span>
+            <div>
+              <p>Revocation + rotation ledger, semantic merge driver, multi-file support, ADRs 0001–0008.</p>
+            </div>
+          </div>
+          <div class="gate">
+            <span class="status done">done</span>
+            <div>
+              <p>Coverage gates (80% overall, 85% on <span class="mono">crypt</span> / <span class="mono">keys</span> /
+                <span class="mono">config</span> / <span class="mono">dotenv</span>). Every action pin verified.</p>
+            </div>
+          </div>
+          <div class="gate">
+            <span class="status todo">open</span>
+            <div>
+              <p>Branch protection: signed commits, required checks, no force-push to <span class="mono">main</span>.
+              </p>
+              <p class="note">Load-bearing for the trust story — set on the GitHub side, not in code.</p>
+            </div>
+          </div>
+          <div class="gate">
+            <span class="status todo">open</span>
+            <div>
+              <p>Homebrew tap, published binary verification on each supported OS, pre-release banner removed.</p>
+              <p class="note">Until then: install from source with <span class="mono">go install</span>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ---------- footer ---------- -->
+  <footer>
+    <div class="wrap">
+      <div class="cols">
+        <div>
+          <h4>EnvGuardian</h4>
+          <p style="color:var(--muted);max-width:36ch;line-height:1.55">
+            A small CLI over <a href="https://github.com/FiloSottile/age" style="color:var(--ink-2)">age(1)</a>
+            for teams that want to keep <span class="mono">.env</span> in git, without regret.
+          </p>
+        </div>
+        <div>
+          <h4>Docs</h4>
+          <ul>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian#readme">Readme</a></li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/USER_GUIDE.md">User Guide</a></li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/threat-model.md">Threat Model</a>
+            </li>
+          </ul>
+        </div>
+        <div>
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/PLAN.md">Roadmap &amp; status</a>
+            </li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/CHANGELOG.md">Changelog</a></li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Security</h4>
+          <ul>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/SECURITY.md">Report an issue</a></li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/adr">ADRs 0001–0008</a></li>
+            <li><a href="https://github.com/FiloSottile/age">age(1)</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="colofon">
+        <span class="made">MIT licensed · Built by <em>YehiaGewily</em> · <span aria-hidden="true">🛡️</span></span>
+        <span class="made"><a href="https://github.com/YehiaGewily/EnvGuardian"
+            style="color:var(--muted)">github.com/YehiaGewily/EnvGuardian</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const button = document.querySelector('.theme-toggle');
+      const system = window.matchMedia('(prefers-color-scheme: dark)');
+
+      try {
+        const saved = localStorage.getItem('envguardian-theme');
+        if (saved === 'light' || saved === 'dark') root.dataset.theme = saved;
+      } catch (_) { }
+
+      const current = () => root.dataset.theme || (system.matches ? 'dark' : 'light');
+      const describe = () => {
+        const next = current() === 'dark' ? 'light' : 'dark';
+        button.setAttribute('aria-label', `Switch to ${next} theme`);
+        button.title = `Switch to ${next} theme`;
+      };
+
+      button.addEventListener('click', () => {
+        root.dataset.theme = current() === 'dark' ? 'light' : 'dark';
+        try { localStorage.setItem('envguardian-theme', root.dataset.theme); } catch (_) { }
+        describe();
+      });
+      system.addEventListener?.('change', describe);
+      describe();
+    })();
+  </script>
+
+</body>
+
+</html>

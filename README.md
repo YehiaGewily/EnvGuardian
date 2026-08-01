@@ -10,6 +10,8 @@
 
 **Commit your team's `.env` to git — encrypted — so cloning the repo is all it takes to have working local config.**
 
+<sub>🌐&nbsp; <a href="https://yehiagewily.github.io/EnvGuardian/">envguardian landing page</a>&nbsp; ·&nbsp; 📖 <a href="docs/USER_GUIDE.md">User Guide</a>&nbsp; ·&nbsp; 🗺️ <a href="docs/PLAN.md">Status &amp; roadmap</a></sub>
+
 A key-management and git-integration layer over [`age`](https://github.com/FiloSottile/age). *Not* a cryptographic implementation.
 
 [![CI](https://github.com/YehiaGewily/EnvGuardian/actions/workflows/ci.yml/badge.svg)](https://github.com/YehiaGewily/EnvGuardian/actions/workflows/ci.yml)

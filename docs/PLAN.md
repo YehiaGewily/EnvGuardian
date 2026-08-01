@@ -402,9 +402,9 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
   scoped only to that repository with Contents read/write.
 - [x] Configure six archives: Linux, macOS, and Windows on amd64 and arm64,
   plus a committed checksum manifest.
-- [ ] Finalize the changelog, create signed tag `v0.2.0`, and leave `v0.1.0`
+- [x] Finalize the changelog, create signed tag `v0.2.0`, and leave `v0.1.0`
   unchanged.
-- [ ] Verify all six published archives and their checksums.
+- [x] Verify all six published archives and their checksums.
 - [ ] Install and run one binary on each supported OS; verify
   `go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.0` and
   Homebrew from clean environments.
