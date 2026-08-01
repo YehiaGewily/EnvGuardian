@@ -23,8 +23,10 @@ A key-management and git-integration layer over [`age`](https://github.com/FiloS
 
 > [!WARNING]
 > **Pre-release software — security hardening is in progress. Do not use EnvGuardian for
-> real secrets yet.** There is no supported release, Homebrew package, or published binary.
-> The `v0.1.0` development tag has a known path-traversal vulnerability in
+> real secrets yet.** Pre-built binaries are attached to the
+> [`v0.2.0`](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.0) release, but it
+> is a **release candidate** — unsupported, not yet verified end to end, and there is no
+> Homebrew tap. The `v0.1.0` development tag has a known path-traversal vulnerability in
 > repository-controlled file mappings — **do not install its automatic git hooks.** See
 > [SECURITY.md](SECURITY.md) and the tracked [remediation plan](docs/PLAN.md).
 
@@ -59,9 +61,13 @@ Three questions decide everything the tool does:
 
 ## Quickstart
 
-> No published binaries yet — run from source with Go 1.24+. Examples use
-> `go run ./cmd/envguardian`; build a local binary with `go build -o envguardian ./cmd/envguardian`
-> if you prefer.
+> **Install (Go 1.24+).** Pin the release candidate:
+> ```bash
+> go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.0
+> ```
+> Or run from source without installing — the examples below use `go run ./cmd/envguardian`;
+> swap in `envguardian` if you installed it. Pre-built binaries are also on the
+> [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.0).
 
 **Repo owner — first-time setup:**
 
