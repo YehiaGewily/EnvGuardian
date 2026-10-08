@@ -226,6 +226,15 @@ EnvGuardian does **not** protect against:
   migration artifacts remain visibly weaker and still depend on explicit review/acceptance.
 - **A malicious repository configuration in `v0.1.0`.** Automatic decryption can write
   outside the repository; see the advisory in [SECURITY.md](SECURITY.md).
+- **A pull request that adds its author as a recipient.** CI `check` verifies a snapshot
+  against that snapshot's own `recipients.toml`. Someone who is not a recipient can add
+  their key, run `encrypt --force`, and get a signature that verifies, so `check` passes.
+  `check` proves internal consistency and decryptability, not who authored the ciphertext
+  or whether the recipient change was authorized: a green `check` on a pull request that
+  changes `recipients.toml` proves nothing about who authored the new ciphertext. Human
+  review of `.envguardian/recipients.toml` (routed by CODEOWNERS) is the boundary.
+  Reviewers should reject pull requests that change recipients and ciphertext together
+  unless both changes are confirmed out of band.
 - **Plain `decrypt` in `v0.2.0` and `v0.2.1`.** It skipped the accepted-commit check, so it
   installed an unreviewed branch's ciphertext that the hook had refused; see the advisory in
   [SECURITY.md](SECURITY.md).

@@ -129,6 +129,50 @@ The explicit acceptance transition remains required when managed commit inputs
 change; a valid artifact signature identifies a current recipient as sealer but
 does not prove that a branch was reviewed or approved.
 
+## What `check` proves, and what it does not
+
+`check` verifies one snapshot against itself. It reads config, recipients,
+lock, ciphertext, and detached signatures from the same checkout, and proves
+that:
+
+- config and managed paths are safe and recipients are well formed;
+- the lock matches each ciphertext's exact bytes and that snapshot's recipient
+  fingerprint;
+- each signature verifies, over that ciphertext and mapping, against an SSH key
+  listed in that snapshot's `recipients.toml`;
+- with an identity, each ciphertext decrypts to valid dotenv.
+
+It does not prove that the recipients file is one the team approved, that the
+signing key belonged to a recipient before the change, who authored the
+change, or that the values are benign. "Current recipient" means a key listed
+in the file being checked, which the change under test may itself have edited.
+
+A contributor who is not a recipient can add their own key to
+`recipients.toml` on a branch (or replace an existing recipient's key under the
+same name), write their own values, run `envguardian encrypt --force`, and get
+a signature that verifies against that branch's recipients. `check` passes on
+that branch. A green `check` on a pull request that changes `recipients.toml`
+therefore proves nothing about who authored the new ciphertext. Neither
+`check` nor successful decryption authenticates the sender.
+
+The boundary is human review of `.envguardian/recipients.toml`, which
+`.github/CODEOWNERS` assigns to code owners. It holds only where the host
+requires code-owner approval before merge; [PLAN.md](PLAN.md) records this
+repository's current branch-protection settings. Reviewers should reject a pull
+request that changes recipients and ciphertext (`*.age`, `*.age.sig`, or the
+lock) together unless both the recipient change and the content change are
+confirmed out of band: with the person who is supposed to have made them, over
+a channel other than the pull request, comparing any added key with one they
+supply directly. The signer name that `check` or a hook reports comes from the
+changed file, so it is not that confirmation. `add-recipient` legitimately
+produces this shape and needs the same confirmation. If such a commit lands
+anyway, the accepted-commit gate still stops the hooks and plain `decrypt`
+from installing it on a developer's machine until that developer runs
+`decrypt --accept-changes`.
+
+A base-ref comparison mode for `check` is an open follow-up in
+[PLAN.md](PLAN.md).
+
 ## Does not protect against
 
 - A current recipient reading the plaintext.

@@ -256,6 +256,42 @@ envguardian rotation done STRIPE_SECRET_KEY
 > copy of git history can still decrypt **past** commits. The exposed credentials are
 > only truly safe once you **rotate them at the provider** and then run `rotation done`.
 
+### Reviewing recipient changes
+
+`recipients.toml` decides who can read every secret, and EnvGuardian cannot tell an
+authorized change to it from an unauthorized one. **Human review of this file is the
+security boundary**; `.github/CODEOWNERS` routes it to code owners, which only enforces
+anything if your host requires code-owner approval before merge.
+
+Do not treat a green CI `check` as evidence about a recipient change:
+
+- **What `check` proves:** the snapshot is internally consistent — safe config and paths,
+  well-formed recipients, a lock that matches the ciphertext bytes, a signature that
+  verifies against a key listed in *that snapshot's* `recipients.toml`, and (with an
+  identity) ciphertext that decrypts to valid dotenv.
+- **What it does not prove:** that the recipient change was authorized, that the signer
+  was a recipient before the change, who authored the ciphertext, or that the values are
+  benign.
+
+Someone who is not a recipient can add their own key to `recipients.toml` (or swap the key
+under an existing name), write their own values, and run `encrypt --force`. The new
+signature verifies against the recipients in their branch, so `check` passes. **A green
+`check` on a pull request that changes `recipients.toml` proves nothing about who authored
+the new ciphertext.**
+
+When reviewing:
+
+- **Reject a pull request that changes `recipients.toml` and ciphertext (`*.age`,
+  `*.age.sig`, `lock.toml`) together** unless both changes are confirmed out of band — with
+  the person who is supposed to have made them, over a channel other than the pull request,
+  comparing any added key with one they give you directly. A legitimate `add-recipient`
+  produces exactly this shape, so it needs the same confirmation.
+- The signer name in `check` output or a hook alert comes from the changed file; it is not
+  that confirmation.
+- If such a change merges anyway, your hooks and plain `decrypt` still refuse to install it
+  until you run `decrypt --accept-changes` — so do not run that without the confirmation
+  above.
+
 ---
 
 ## 6. Verification & integrity
@@ -278,6 +314,10 @@ envguardian check --structural-only
 fingerprint match, a valid signature per ciphertext, `.env` is gitignored, ciphertext
 decrypts to valid dotenv, and the rotation ledger is readable. `--structural-only` skips
 only the decryption step and says so explicitly.
+
+`check` verifies a snapshot against its own `recipients.toml`, so it cannot detect a pull
+request that adds its author as a recipient and re-seals the ciphertext. See
+[Reviewing recipient changes](#reviewing-recipient-changes).
 
 ### `check-local` — developer synchronization
 

@@ -91,6 +91,21 @@ Removing a recipient only prevents access to future ciphertext. It cannot
 remove access to historical ciphertext in git; affected credentials must be
 rotated at their source.
 
+### CI `check` cannot detect a self-added recipient
+
+`check` verifies a snapshot against that same snapshot's `recipients.toml`. A
+pull request whose author is not a recipient can add their own key to
+`recipients.toml`, run `encrypt --force`, and produce a signature that verifies
+against the recipients in their branch, so `check` passes. `check` proves the
+snapshot is internally consistent and, with an identity, decryptable; it does
+not prove who authored the ciphertext or that the recipient change was
+authorized, and a green `check` on a pull request that changes
+`recipients.toml` proves nothing about who authored the new ciphertext. The
+security boundary is code-owner review of `.envguardian/recipients.toml`.
+Reviewers should reject pull requests that change recipients and ciphertext
+together unless both changes are confirmed out of band. See
+[docs/threat-model.md](docs/threat-model.md).
+
 ### Accepted-commit trust state
 
 Inside a Git repository, neither the hooks nor plain `decrypt` write plaintext

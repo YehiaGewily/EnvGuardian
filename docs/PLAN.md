@@ -435,3 +435,8 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
 exists; every documentation link resolves; branch protection is active; CI is
 green on the exact release commit; coverage floors pass; and a real
 two-developer, two-identity hostile-branch scenario passes end to end.
+
+## Follow-ups
+
+- [ ] Consider a base-ref comparison mode for `check` that fails when
+  recipients change alongside ciphertext.
