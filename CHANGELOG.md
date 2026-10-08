@@ -15,6 +15,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Repositories initialized with v0.2.0 or v0.2.1 should add both lines to
   `.gitattributes` and commit them (`envguardian merge --install` also adds
   them).
+- `envguardian version` no longer reports `dev (commit none, built unknown)` for
+  binaries built without release ldflags. Fields left at those defaults fall
+  back to the version Go embeds in the binary (the module version for
+  `go install ...@vX.Y.Z`) and to `vcs.revision` and `vcs.time` when present.
+  Release ldflags still take precedence.
 
 ### Security
 
