@@ -1,6 +1,8 @@
 package atomic
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -105,8 +107,12 @@ func TestOriginalIntactWhenDestUnwritable(t *testing.T) {
 
 	// A temp-creation failure (nonexistent parent) must not touch the original.
 	bad := filepath.Join(dir, "nope", "child")
-	if err := WriteFile(bad, []byte("x"), 0o600); err == nil {
+	err := WriteFile(bad, []byte("x"), 0o600)
+	if err == nil {
 		t.Fatal("expected failure writing into a nonexistent directory")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error = %v, want it to wrap fs.ErrNotExist", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != "keepme" {
 		t.Errorf("unrelated original changed: %q", got)

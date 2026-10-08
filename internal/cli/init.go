@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +26,12 @@ func newInitCmd(flags *globalFlags) *cobra.Command {
 	cmd.Flags().StringVar(&plaintext, "file", ".env", "plaintext file to manage")
 	return cmd
 }
+
+// ciphertextAttributes stop Git from converting line endings in ciphertext and
+// detached signatures. Both are verified byte-for-byte against the lock digest
+// and signature, so a core.autocrlf checkout would otherwise make a teammate's
+// clone fail verification.
+var ciphertextAttributes = []string{"*.age -text", "*.age.sig -text"}
 
 func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) error {
 	p, err := secureRootPaths(flags)
@@ -88,6 +95,14 @@ func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) err
 	if _, err := gitint.AppendIgnore(p.Root, config.AutoDecryptStateRelative); err != nil {
 		return err
 	}
+	attributesAdded := false
+	for _, line := range ciphertextAttributes {
+		lineAdded, err := gitint.AppendLine(filepath.Join(p.Root, ".gitattributes"), line)
+		if err != nil {
+			return err
+		}
+		attributesAdded = attributesAdded || lineAdded
+	}
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "initialized envguardian in %s\n", display(p.Dir))
@@ -97,6 +112,11 @@ func runInit(cmd *cobra.Command, flags *globalFlags, name, plaintext string) err
 		fmt.Fprintf(out, "  gitignore:  added %s\n", plaintext)
 	} else {
 		fmt.Fprintf(out, "  gitignore:  %s already ignored\n", plaintext)
+	}
+	if attributesAdded {
+		fmt.Fprintln(out, "  attributes: .gitattributes keeps *.age and *.age.sig byte-exact (-text)")
+	} else {
+		fmt.Fprintln(out, "  attributes: .gitattributes already keeps ciphertext byte-exact")
 	}
 	fmt.Fprintf(out, "next: create %s, then run `envguardian encrypt`\n", plaintext)
 	return nil

@@ -45,61 +45,94 @@ func newHookAutoDecryptCmd(flags *globalFlags) *cobra.Command {
 	}
 }
 
-// runHookAutoDecrypt compares security-sensitive blobs before parsing the
-// incoming config. Only an unchanged, previously accepted config may select
-// destinations for automatic writes.
+// runHookAutoDecrypt runs the shared trust gate and, only when HEAD's managed
+// inputs are identical to the accepted commit, silently decrypts HEAD and
+// records it as accepted.
 func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 	p, err := secureRootPaths(flags)
 	if err != nil {
 		return err
 	}
 	root := gitRoot(p.Root)
-	statePath := p.State
+	accepted, err := compareWithAcceptedCommit(root, p, flags, "automatic decryption")
+	if err != nil {
+		return err
+	}
+	if err := ensureAutoDecryptStateIgnored(root); err != nil {
+		return err
+	}
+	if err := decryptCommitSnapshot(root, accepted.commit, p, accepted.cfg, accepted.id, false, nil, cmd); err != nil {
+		return err
+	}
+	if err := saveAutoDecryptState(root, p.State, accepted.commit); err != nil {
+		return err
+	}
+	return nil
+}
+
+// acceptedSnapshot is a HEAD commit whose managed inputs are byte-identical to
+// the locally accepted commit, with the config parsed from that commit.
+type acceptedSnapshot struct {
+	commit string
+	cfg    *config.Config
+	id     *keys.Identity
+}
+
+// compareWithAcceptedCommit is the trust gate shared by the post-checkout and
+// post-merge hook and by plain `decrypt` inside a Git work tree. It compares
+// HEAD's committed config, recipients, ciphertext, and detached signatures with
+// the commit recorded in local trust state, and compares config bytes before
+// parsing the incoming config, so only an already accepted config can select
+// plaintext destinations. Missing or unreadable trust state, an unavailable
+// accepted commit, or any difference returns an exitOutOfSync error naming only
+// keys and recipients. action ("automatic decryption" or "decryption") prefixes
+// the report. Nothing is written.
+func compareWithAcceptedCommit(root string, p config.Paths, flags *globalFlags, action string) (*acceptedSnapshot, error) {
 	current, err := resolveCommit(root, "HEAD")
 	if err != nil {
-		return withExit(exitOutOfSync, fmt.Errorf("automatic decryption blocked: resolve current commit: %w", err))
+		return nil, withExit(exitOutOfSync, fmt.Errorf("%s blocked: resolve current commit: %w", action, err))
 	}
-	state, err := loadAutoDecryptState(statePath)
+	state, err := loadAutoDecryptState(p.State)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return autoDecryptBlocked(root, current, nil, []string{"no previously accepted commit is recorded"})
+			return nil, autoDecryptBlocked(action, root, current, nil, []string{"no previously accepted commit is recorded"})
 		}
-		return withExit(exitOutOfSync, fmt.Errorf("automatic decryption blocked: read local trust state: %w", err))
+		return nil, withExit(exitOutOfSync, fmt.Errorf("%s blocked: read local trust state: %w", action, err))
 	}
 	trusted, err := resolveCommit(root, state.Commit)
 	if err != nil {
-		return autoDecryptBlocked(root, current, nil, []string{"the previously accepted commit is no longer available"})
+		return nil, autoDecryptBlocked(action, root, current, nil, []string{"the previously accepted commit is no longer available"})
 	}
 
 	configRel, err := repoRelative(root, p.Config)
 	if err != nil {
-		return withExit(exitConfig, fmt.Errorf("resolve config path: %w", err))
+		return nil, withExit(exitConfig, fmt.Errorf("resolve config path: %w", err))
 	}
 	oldConfig, err := gitBlob(root, trusted, configRel)
 	if err != nil {
-		return autoDecryptBlocked(root, current, nil, []string{"the accepted commit's managed configuration cannot be read"})
+		return nil, autoDecryptBlocked(action, root, current, nil, []string{"the accepted commit's managed configuration cannot be read"})
 	}
 	newConfig, err := gitBlob(root, current, configRel)
 	if err != nil {
-		return autoDecryptBlocked(root, current, nil, []string{"the incoming commit's managed configuration cannot be read"})
+		return nil, autoDecryptBlocked(action, root, current, nil, []string{"the incoming commit's managed configuration cannot be read"})
 	}
 	if !oldConfig.Exists || !newConfig.Exists || !bytes.Equal(oldConfig.Data, newConfig.Data) {
 		trustedRecipients := recipientsAtCommit(root, trusted, p)
-		return autoDecryptBlocked(root, current, trustedRecipients, []string{"managed configuration changed"})
+		return nil, autoDecryptBlocked(action, root, current, trustedRecipients, []string{"managed configuration changed"})
 	}
 
 	// The exact config bytes match the accepted commit, so it is now safe to
 	// parse them and resolve managed paths for this repository.
 	cfg, err := config.Parse(root, newConfig.Data)
 	if err != nil {
-		return withExit(exitConfig, fmt.Errorf("automatic decryption blocked: accepted config no longer resolves safely: %w", err))
+		return nil, withExit(exitConfig, fmt.Errorf("%s blocked: accepted config no longer resolves safely: %w", action, err))
 	}
 
 	trustedRecipients := recipientsAtCommit(root, trusted, p)
 	var changes []string
 	recipientsRel, relErr := repoRelative(root, p.Recipients)
 	if relErr != nil {
-		return withExit(exitConfig, fmt.Errorf("resolve recipients path: %w", relErr))
+		return nil, withExit(exitConfig, fmt.Errorf("resolve recipients path: %w", relErr))
 	}
 	oldRecipients, oldRecipientsErr := gitBlob(root, trusted, recipientsRel)
 	newRecipients, newRecipientsErr := gitBlob(root, current, recipientsRel)
@@ -115,7 +148,7 @@ func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 	for _, fp := range cfg.Files {
 		cipherRel, relErr := repoRelative(root, fp.CiphertextPath)
 		if relErr != nil {
-			return withExit(exitConfig, fmt.Errorf("resolve ciphertext %q: %w", fp.Ciphertext, relErr))
+			return nil, withExit(exitConfig, fmt.Errorf("resolve ciphertext %q: %w", fp.Ciphertext, relErr))
 		}
 		oldCipher, oldErr := gitBlob(root, trusted, cipherRel)
 		newCipher, newErr := gitBlob(root, current, cipherRel)
@@ -140,21 +173,12 @@ func runHookAutoDecrypt(cmd *cobra.Command, flags *globalFlags) error {
 	}
 
 	if len(changes) > 0 {
-		return autoDecryptBlocked(root, current, trustedRecipients, changes)
+		return nil, autoDecryptBlocked(action, root, current, trustedRecipients, changes)
 	}
 	if identityErr != nil {
-		return identityErr
+		return nil, identityErr
 	}
-	if err := ensureAutoDecryptStateIgnored(root); err != nil {
-		return err
-	}
-	if err := decryptCommitSnapshot(root, current, p, cfg, id, false, cmd); err != nil {
-		return err
-	}
-	if err := saveAutoDecryptState(root, statePath, current); err != nil {
-		return err
-	}
-	return nil
+	return &acceptedSnapshot{commit: current, cfg: cfg, id: id}, nil
 }
 
 // runAcceptChanges is the explicit trust transition. It reads config and
@@ -190,7 +214,7 @@ func runAcceptChanges(cmd *cobra.Command, flags *globalFlags) error {
 	if err := ensureAutoDecryptStateIgnored(root); err != nil {
 		return err
 	}
-	if err := decryptCommitSnapshot(root, current, p, cfg, id, true, cmd); err != nil {
+	if err := decryptCommitSnapshot(root, current, p, cfg, id, true, nil, cmd); err != nil {
 		return err
 	}
 	if err := saveAutoDecryptState(root, statePath, current); err != nil {
@@ -200,7 +224,10 @@ func runAcceptChanges(cmd *cobra.Command, flags *globalFlags) error {
 	return nil
 }
 
-func decryptCommitSnapshot(root, commit string, p config.Paths, cfg *config.Config, id *keys.Identity, report bool, cmd *cobra.Command) error {
+// decryptCommitSnapshot verifies every configured ciphertext and signature
+// blob in commit before writing any plaintext. Pairs named in keep (by
+// ciphertext name) are verified but their plaintext is left untouched.
+func decryptCommitSnapshot(root, commit string, p config.Paths, cfg *config.Config, id *keys.Identity, report bool, keep map[string]bool, cmd *cobra.Command) error {
 	recipientsRel, err := repoRelative(root, p.Recipients)
 	if err != nil {
 		return withExit(exitConfig, err)
@@ -249,6 +276,12 @@ func decryptCommitSnapshot(root, commit string, p config.Paths, cfg *config.Conf
 		prepared = append(prepared, preparedCiphertext{pair: fp, data: blob.Data})
 	}
 	for _, item := range prepared {
+		if keep[item.pair.Ciphertext] {
+			if report {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s unchanged: it already matches the uncommitted %s\n", item.pair.Plaintext, item.pair.Ciphertext)
+			}
+			continue
+		}
 		ccfg := crypt.Config{Identities: id.Identities, Label: id.Label}
 		if err := crypt.OpenBytes(ccfg, item.data, item.pair.PlaintextPath); err != nil {
 			return fmt.Errorf("refuse to write %s: %w", item.pair.Plaintext, err)
@@ -300,10 +333,10 @@ func ensureAutoDecryptStateIgnored(root string) error {
 	return nil
 }
 
-func autoDecryptBlocked(root, current string, trustedRecipients *keys.RecipientsFile, changes []string) error {
+func autoDecryptBlocked(action, root, current string, trustedRecipients *keys.RecipientsFile, changes []string) error {
 	sort.Strings(changes)
 	var message strings.Builder
-	fmt.Fprintf(&message, "automatic decryption blocked for commit %s:\n", shortCommit(current))
+	fmt.Fprintf(&message, "%s blocked for commit %s:\n", action, shortCommit(current))
 	for _, change := range changes {
 		fmt.Fprintf(&message, "  - %s\n", change)
 	}

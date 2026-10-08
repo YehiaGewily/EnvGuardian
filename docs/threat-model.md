@@ -44,6 +44,13 @@ loaded. Resolution:
 Decrypted bytes must parse completely as dotenv before a mode-`0600` atomic
 plaintext write. There is no bypass flag.
 
+On Windows, mode-`0600` writes are created with a protected DACL whose only
+entry allows the current process user, applied at creation and confirmed before
+any content is written; otherwise the write fails. This does not protect
+plaintext from Administrators, SYSTEM, or backup software (the equivalent of
+root on Unix), and files written by older versions keep their inherited ACL
+until rewritten.
+
 ## Automatic-decryption boundary
 
 Automatic post-checkout and post-merge behavior stores the resolved commit of
@@ -70,6 +77,34 @@ envguardian decrypt --accept-changes
 That command validates and decrypts the exact `HEAD` snapshot, writes plaintext,
 and updates local trust state only after successful writes.
 
+### Manual decryption inside a repository
+
+Plain `envguardian decrypt` inside a Git work tree passes through the same
+comparison as the hook (one shared function), so it is not a way around a
+blocked hook. In `v0.2.0` and `v0.2.1` it read and decrypted the working tree
+without consulting trust state, which let a branch that added its author to
+`recipients.toml` and re-sealed the ciphertext overwrite local plaintext that
+the hook had just refused to write. Now:
+
+- If config, recipients, any ciphertext, or any detached signature at `HEAD`
+  differs from the accepted commit, it writes nothing and reports key and
+  recipient names with exit code 1.
+- With no recorded accepted commit (a fresh clone), it refuses. The first trust
+  decision is always the explicit `decrypt --accept-changes`.
+- It writes plaintext only from committed `HEAD` blobs. If a managed file in
+  the working tree differs from `HEAD`, it refuses, with one exception: an
+  uncommitted ciphertext or signature whose signature verifies against `HEAD`'s
+  recipients and whose plaintext is byte-identical to the current local file is
+  left untouched. That exception writes nothing, so it cannot install
+  uncommitted content; it only keeps a developer's own `encrypt` followed by
+  `decrypt` from failing. Uncommitted config or recipients changes always
+  refuse.
+- It never updates trust state.
+- Outside a Git repository it decrypts the files on disk, because there is no
+  branch to receive. If a `.git` entry or `GIT_DIR` indicates a repository that
+  Git cannot open, it fails closed instead of treating the directory as
+  outside a repository.
+
 Commit-signature diagnostics remain supporting context, not ciphertext
 authentication. The detached `.sig` artifact is verified independently against
 the current recipients file before any automatic plaintext write.
@@ -93,6 +128,50 @@ fails closed when a detached signature is missing.
 The explicit acceptance transition remains required when managed commit inputs
 change; a valid artifact signature identifies a current recipient as sealer but
 does not prove that a branch was reviewed or approved.
+
+## What `check` proves, and what it does not
+
+`check` verifies one snapshot against itself. It reads config, recipients,
+lock, ciphertext, and detached signatures from the same checkout, and proves
+that:
+
+- config and managed paths are safe and recipients are well formed;
+- the lock matches each ciphertext's exact bytes and that snapshot's recipient
+  fingerprint;
+- each signature verifies, over that ciphertext and mapping, against an SSH key
+  listed in that snapshot's `recipients.toml`;
+- with an identity, each ciphertext decrypts to valid dotenv.
+
+It does not prove that the recipients file is one the team approved, that the
+signing key belonged to a recipient before the change, who authored the
+change, or that the values are benign. "Current recipient" means a key listed
+in the file being checked, which the change under test may itself have edited.
+
+A contributor who is not a recipient can add their own key to
+`recipients.toml` on a branch (or replace an existing recipient's key under the
+same name), write their own values, run `envguardian encrypt --force`, and get
+a signature that verifies against that branch's recipients. `check` passes on
+that branch. A green `check` on a pull request that changes `recipients.toml`
+therefore proves nothing about who authored the new ciphertext. Neither
+`check` nor successful decryption authenticates the sender.
+
+The boundary is human review of `.envguardian/recipients.toml`, which
+`.github/CODEOWNERS` assigns to code owners. It holds only where the host
+requires code-owner approval before merge; [PLAN.md](PLAN.md) records this
+repository's current branch-protection settings. Reviewers should reject a pull
+request that changes recipients and ciphertext (`*.age`, `*.age.sig`, or the
+lock) together unless both the recipient change and the content change are
+confirmed out of band: with the person who is supposed to have made them, over
+a channel other than the pull request, comparing any added key with one they
+supply directly. The signer name that `check` or a hook reports comes from the
+changed file, so it is not that confirmation. `add-recipient` legitimately
+produces this shape and needs the same confirmation. If such a commit lands
+anyway, the accepted-commit gate still stops the hooks and plain `decrypt`
+from installing it on a developer's machine until that developer runs
+`decrypt --accept-changes`.
+
+A base-ref comparison mode for `check` is an open follow-up in
+[PLAN.md](PLAN.md).
 
 ## Does not protect against
 

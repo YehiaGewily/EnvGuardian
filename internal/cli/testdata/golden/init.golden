@@ -2,4 +2,5 @@ initialized envguardian in .envguardian
   config:     .envguardian/config.toml
   recipients: .envguardian/recipients.toml (seeded with "alice")
   gitignore:  added .env
+  attributes: .gitattributes keeps *.age and *.age.sig byte-exact (-text)
 next: create .env, then run `envguardian encrypt`

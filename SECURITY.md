@@ -7,8 +7,9 @@ unreleased development snapshot and must not be used for real secrets.
 
 | Version | Supported |
 |---|---|
+| `v0.2.1` release candidate | No — pending Stage G verification |
 | `v0.2.0` release candidate | No — pending Stage G verification |
-| `main` before the `v0.2.0` release | No — development only |
+| `main` | No — development only |
 | `v0.1.0` | No — known unsafe development tag |
 
 ## Known advisory: repository path traversal
@@ -35,16 +36,49 @@ This advisory is intentionally public because there is no supported release to
 protect and users need an unambiguous warning. The tracked remediation is in
 [docs/PLAN.md](docs/PLAN.md).
 
+## Known advisory: plain `decrypt` skipped the accepted-commit check
+
+**Affected:** `v0.2.0` and `v0.2.1` release candidates. Fixed on `main`, not yet
+released.
+
+The post-checkout and post-merge hooks refuse to write plaintext when a
+commit's config, recipients, ciphertext, or signature differs from the locally
+accepted commit, and tell the user that `decrypt --accept-changes` is the
+confirmation step. Plain `envguardian decrypt` did not apply that check: it
+verified the working-tree signature against the working-tree recipients file
+and decrypted. A branch author who is not a recipient could add their own key
+to `recipients.toml`, run `encrypt --force`, and produce a signature that
+verifies against that branch's recipients. After the hook refused the branch,
+running plain `decrypt` overwrote the local `.env` with the branch author's
+values without any confirmation.
+
+On `main`, plain `decrypt` inside a Git repository applies the hook's
+comparison and refuses before any plaintext write, decrypts only committed
+`HEAD` blobs, and refuses in a clone with no accepted commit. Until a fixed
+version is released, with `v0.2.0` or `v0.2.1` use only
+`decrypt --accept-changes`, and only after reviewing the commit.
+
 ## Security boundary
 
 ### Windows plaintext permissions
 
-Atomic replacement works on Windows, but the `0600` mode used for plaintext is
-only a Unix permission guarantee. EnvGuardian does not yet install or verify a
-restrictive Windows DACL; access is inherited from the destination directory.
-Until native ACL enforcement is implemented, the Windows build must not be
-treated as providing per-user plaintext-file isolation and must not be used for
-real secrets.
+Owner-only writes (mode `0600`: decrypted plaintext, local auto-decrypt state,
+and temporary signing files) are created on Windows with a protected DACL that
+has a single allow entry for the current process user and no inherited entries.
+The DACL is applied when the temporary file is created, before any content is
+written, and is read back from the open handle; if it cannot be resolved,
+applied, or confirmed (for example on a FAT/exFAT volume that does not store
+ACLs), the write fails and leaves no temporary file. Same-volume rename keeps
+that DACL, including when replacing an existing file.
+
+Limits: Administrators, SYSTEM, and backup software can still read the files,
+as root can on Unix. Accounts that can modify the containing directory can
+still delete or replace files in it. Plaintext written by earlier versions
+keeps its inherited ACL until EnvGuardian rewrites it; run
+`envguardian decrypt` to rewrite it, or fix it with `icacls`. The same applies
+after any other tool replaces the file: editors that save by writing a new file
+and renaming it over `.env`, copying a file over it, or restoring it from a
+backup all produce a file with the directory's inherited ACL.
 
 age encrypts to recipients, but it does not authenticate the sender. Successful
 decryption proves neither who created a ciphertext nor that it came from a
@@ -56,6 +90,34 @@ fail closed. See [docs/threat-model.md](docs/threat-model.md).
 Removing a recipient only prevents access to future ciphertext. It cannot
 remove access to historical ciphertext in git; affected credentials must be
 rotated at their source.
+
+### CI `check` cannot detect a self-added recipient
+
+`check` verifies a snapshot against that same snapshot's `recipients.toml`. A
+pull request whose author is not a recipient can add their own key to
+`recipients.toml`, run `encrypt --force`, and produce a signature that verifies
+against the recipients in their branch, so `check` passes. `check` proves the
+snapshot is internally consistent and, with an identity, decryptable; it does
+not prove who authored the ciphertext or that the recipient change was
+authorized, and a green `check` on a pull request that changes
+`recipients.toml` proves nothing about who authored the new ciphertext. The
+security boundary is code-owner review of `.envguardian/recipients.toml`.
+Reviewers should reject pull requests that change recipients and ciphertext
+together unless both changes are confirmed out of band. See
+[docs/threat-model.md](docs/threat-model.md).
+
+### Accepted-commit trust state
+
+Inside a Git repository, neither the hooks nor plain `decrypt` write plaintext
+unless `HEAD`'s config, recipients, ciphertext, and detached signatures are
+byte-identical to the commit last accepted in the local, gitignored
+`.envguardian/auto-decrypt-state.toml`. A fresh clone has no accepted commit,
+so its first decryption must be `decrypt --accept-changes`. Plaintext is
+written only from committed `HEAD` blobs, never from uncommitted working-tree
+ciphertext. Outside a Git repository, `decrypt` reads the files on disk; if a
+`.git` entry or `GIT_DIR` points at a repository Git cannot open, it fails
+closed. Accepting a commit is a human review decision; see
+[docs/threat-model.md](docs/threat-model.md).
 
 ## Reporting a vulnerability
 

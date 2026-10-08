@@ -77,8 +77,9 @@ Do not run these commands until the release gate in the plan is complete.
 
 7. Only after all paths succeed, update README and SECURITY to mark v0.2.0
    supported and replace the pre-release warning with verified installation
-   instructions. The Windows DACL limitation must remain prominent until native
-   ACL enforcement exists.
+   instructions. Keep the Windows owner-only DACL caveats (Administrators,
+   SYSTEM, and backup tools can read; older files keep their ACL until
+   rewritten) documented.
 
 ## Coverage badge
 

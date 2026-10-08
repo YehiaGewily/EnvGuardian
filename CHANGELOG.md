@@ -6,6 +6,58 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `init` now writes `*.age -text` and `*.age.sig -text` to `.gitattributes`.
+  Without them, a teammate cloning with `core.autocrlf=true` (the Git for
+  Windows default) received line-converted ciphertext, so `check` reported a
+  lock digest and signature mismatch and `decrypt` refused with exit code 4.
+  Repositories initialized with v0.2.0 or v0.2.1 should add both lines to
+  `.gitattributes` and commit them (`envguardian merge --install` also adds
+  them).
+- `envguardian version` no longer reports `dev (commit none, built unknown)` for
+  binaries built without release ldflags. Fields left at those defaults fall
+  back to the version Go embeds in the binary (the module version for
+  `go install ...@vX.Y.Z`) and to `vcs.revision` and `vcs.time` when present.
+  Release ldflags still take precedence.
+
+### Security
+
+- Plain `decrypt` inside a Git repository no longer bypasses the accepted-commit
+  trust check. In v0.2.0 and v0.2.1 it decrypted the working tree without
+  consulting trust state, so after the post-checkout or post-merge hook refused
+  a branch that added its author to `recipients.toml` and re-sealed the
+  ciphertext with `encrypt --force`, plain `decrypt` overwrote local `.env` with
+  that branch's values. It now runs the hook's comparison (one shared function)
+  and, if config, recipients, any ciphertext, or any signature at `HEAD` differs
+  from the accepted commit, refuses before writing plaintext, lists only key and
+  recipient names, and exits 1. It also refuses when no accepted commit is
+  recorded, so the first decryption in a fresh clone must be
+  `decrypt --accept-changes`. It writes plaintext only from committed `HEAD`
+  blobs and refuses uncommitted managed changes, except that an uncommitted
+  ciphertext that verifies and decrypts to exactly the local plaintext (after
+  your own `encrypt`) leaves that file untouched and succeeds. Outside a Git
+  repository `decrypt` still reads the files on disk; a `.git` entry or
+  `GIT_DIR` that Git cannot open fails closed.
+- On Windows, owner-only writes (mode `0600`: decrypted plaintext, local
+  auto-decrypt state, and signing temporaries) are now created with a
+  protected DACL granting only the current user, applied before any content is
+  written. If the DACL cannot be applied or confirmed, the write fails and
+  leaves no temporary file. Administrators, SYSTEM, and backup tools can still
+  read these files, and files written by older versions keep their old ACL
+  until rewritten. Tools that replace `.env` (editor "safe write", copying or
+  restoring the file) still produce a file with the directory's inherited ACL.
+
+## [0.2.1] - 2026-08-01
+
+Documentation-only release candidate; the binary behaves like v0.2.0.
+
+### Changed
+
+- Added the GitHub Pages landing page, refreshed branding assets, and updated
+  README installation notes for the published release-candidate binaries and
+  Homebrew cask.
+
 ## [0.2.0] - 2026-07-30
 
 First supported release candidate. `v0.1.1` was not cut before the v0.2
@@ -116,6 +168,7 @@ and must not be used for real secrets.
 
 See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
 
-[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/YehiaGewily/envguardian/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YehiaGewily/envguardian/tree/v0.1.0

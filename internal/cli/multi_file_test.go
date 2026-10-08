@@ -52,16 +52,28 @@ func TestEncryptDecryptMultipleConfiguredFiles(t *testing.T) {
 	if out, stderr, code := runCLIInDir(t, repo, "check", "--identity", identity); code != exitOK {
 		t.Fatalf("multi-file check: %d\n%s%s", code, out, stderr)
 	}
-	for _, path := range []string{".env", "config/worker.env"} {
-		if err := os.Remove(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
-			t.Fatal(err)
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "seal two files"}} {
+		if out, code := run(t, repo, "git", args...); code != 0 {
+			t.Fatalf("git %v: %d\n%s", args, code, out)
 		}
 	}
-	if out, stderr, code := runCLIInDir(t, repo, "decrypt", "--identity", identity); code != exitOK {
-		t.Fatalf("multi-file decrypt: %d\n%s%s", code, out, stderr)
-	}
-	worker, err := os.ReadFile(filepath.Join(repo, "config", "worker.env"))
-	if err != nil || string(worker) != "QUEUE=local\n" {
-		t.Fatalf("worker plaintext = %q, %v", worker, err)
+	// The first decrypt in a repository is the explicit acceptance; after it,
+	// plain decrypt restores every configured file from the accepted commit.
+	for _, args := range [][]string{
+		{"decrypt", "--accept-changes", "--identity", identity},
+		{"decrypt", "--identity", identity},
+	} {
+		for _, path := range []string{".env", "config/worker.env"} {
+			if err := os.Remove(filepath.Join(repo, filepath.FromSlash(path))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if out, stderr, code := runCLIInDir(t, repo, args...); code != exitOK {
+			t.Fatalf("multi-file %v: %d\n%s%s", args, code, out, stderr)
+		}
+		worker, err := os.ReadFile(filepath.Join(repo, "config", "worker.env"))
+		if err != nil || string(worker) != "QUEUE=local\n" {
+			t.Fatalf("worker plaintext = %q, %v", worker, err)
+		}
 	}
 }

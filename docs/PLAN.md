@@ -58,11 +58,17 @@ Both halves are same-day work and precede code hardening.
 
 #### GitHub configuration
 
-- [ ] Protect `main` with an active branch ruleset.
-- [ ] Require pull requests and at least one approval; dismiss stale approvals.
-- [ ] Require every job in the CI workflow as a status check.
-- [ ] Block force pushes and branch deletion.
-- [ ] Require signed commits. This is load-bearing for Phase 2.
+- [x] Protect `main` with an active branch ruleset (`protect-main`, applied
+  2026-10-06).
+- [x] Require pull requests; dismiss stale approvals on push.
+- [ ] Require at least one approval. Deferred while the project has a single
+  maintainer, because the only author cannot approve their own pull request.
+- [x] Require every job in the CI workflow as a status check (all six
+  build-and-test matrix entries, lint, fuzz, coverage, differential, and
+  hygiene).
+- [x] Block force pushes and branch deletion.
+- [ ] Require signed commits. This is load-bearing for Phase 2. Deferred until
+  the maintainer's commits are signed; enabling it earlier blocks every merge.
 - [x] Add `.github/CODEOWNERS` for `.envguardian/**`, `*.age`,
   `*.age.sig`, `.gitattributes`, `.github/workflows/**`,
   `internal/crypt/**`, `internal/authenticity/**`, `internal/keys/**`, and
@@ -324,9 +330,12 @@ not reach user-visible output.
 - [x] Document prominently that `0600` does not install a restrictive Windows
   ACL and that the Windows build is not yet suitable for real secrets.
 - [x] Add a repository test that rejects direct production `os.WriteFile`.
+- [x] On Windows, create owner-only (`0600`) writes with a protected DACL that
+  allows only the current user, applied at creation and verified before any
+  content is written, failing closed otherwise.
 
-**Done:** every production write uses the single atomic-write boundary, with
-the remaining Windows ACL limitation stated instead of hidden.
+**Done:** every production write uses the single atomic-write boundary, and
+owner-only writes are owner-only on Windows as well as Unix.
 
 ### Phase 12 — Tests and coverage gates
 
@@ -398,8 +407,10 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
   integration suites on the exact release commit.
 - [x] Run `goreleaser check`, then build and inspect a clean snapshot with six
   checksum-verified archives and a generated Homebrew cask.
-- [ ] Create `YehiaGewily/homebrew-tap` and configure a fine-grained token
-  scoped only to that repository with Contents read/write.
+- [x] Create `YehiaGewily/homebrew-tap` and configure the
+  `HOMEBREW_TAP_TOKEN` release secret; the v0.2.1 release pushed its cask. The
+  token's scope (that repository only, Contents read/write) must be confirmed
+  in GitHub's token settings, which this repository cannot show.
 - [x] Configure six archives: Linux, macOS, and Windows on amd64 and arm64,
   plus a committed checksum manifest.
 - [x] Finalize the changelog, create signed tag `v0.2.0`, and leave `v0.1.0`
@@ -407,7 +418,16 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
 - [x] Verify all six published archives and their checksums.
 - [ ] Install and run one binary on each supported OS; verify
   `go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.0` and
-  Homebrew from clean environments.
+  Homebrew from clean environments. Partial, against v0.2.1 on 2026-10-06: the
+  checksum-verified `windows_amd64` and `linux_amd64` (Alpine container)
+  archives and a clean-`GOPATH` `go install @v0.2.1` each passed an
+  init/encrypt/check/decrypt/check-local smoke run, and the cask's URLs and
+  SHA-256 values match `checksums.txt`. macOS, arm64, and `brew install` remain
+  unverified.
+- [x] Make `init` write `*.age -text` and `*.age.sig -text` to `.gitattributes`.
+  Install verification found that a `core.autocrlf=true` clone (the Git for
+  Windows default) line-converted the ciphertext, failing the lock digest and
+  signature checks; a regression test now clones with that setting.
 - [ ] Remove the pre-release warning only after every installation path above
   is publicly retrievable and verified.
 
@@ -415,3 +435,8 @@ boundaries as sealing; successful merges cannot leave a falsely current lock.
 exists; every documentation link resolves; branch protection is active; CI is
 green on the exact release commit; coverage floors pass; and a real
 two-developer, two-identity hostile-branch scenario passes end to end.
+
+## Follow-ups
+
+- [ ] Consider a base-ref comparison mode for `check` that fails when
+  recipients change alongside ciphertext.
