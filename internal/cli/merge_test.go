@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,8 +64,8 @@ func TestMergeDriverRealDivergingBranches(t *testing.T) {
 	if out, code := run(t, repo, "git", "checkout", mainBranch); code != exitOK {
 		t.Fatalf("checkout %s: %d\n%s", mainBranch, code, out)
 	}
-	if out, code := run(t, repo, bin, "decrypt", "--identity", identity); code != exitOK {
-		t.Fatalf("restore main plaintext: %d\n%s", code, out)
+	if out, code := run(t, repo, bin, "decrypt", "--accept-changes", "--identity", identity); code != exitOK {
+		t.Fatalf("accept and restore main plaintext: %d\n%s", code, out)
 	}
 	commitEncryptedBranch(t, repo, bin, identity, env, "A=ours\nB=base\n", "ours changes A")
 
@@ -78,8 +79,23 @@ func TestMergeDriverRealDivergingBranches(t *testing.T) {
 	if unmerged, _ := run(t, repo, "git", "diff", "--name-only", "--diff-filter=U"); strings.TrimSpace(unmerged) != "" {
 		t.Fatalf("unmerged paths remain: %s", unmerged)
 	}
-	if out, code := run(t, repo, bin, "decrypt", "--identity", identity); code != exitOK {
-		t.Fatalf("decrypt merged result: %d\n%s", code, out)
+	// The staged merge is uncommitted and HEAD differs from the accepted
+	// commit, so plain decrypt must refuse without touching local plaintext.
+	before, err := os.ReadFile(filepath.Join(repo, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, code := run(t, repo, bin, "decrypt", "--identity", identity); code != exitOutOfSync {
+		t.Fatalf("plain decrypt of an unaccepted merge: %d, want %d\n%s", code, exitOutOfSync, out)
+	}
+	if after, _ := os.ReadFile(filepath.Join(repo, ".env")); !bytes.Equal(before, after) {
+		t.Fatal("refused decrypt modified local plaintext")
+	}
+	if out, code := runEnv(t, repo, env, "git", "commit", "-q", "--no-edit"); code != exitOK {
+		t.Fatalf("commit merge: %d\n%s", code, out)
+	}
+	if out, code := run(t, repo, bin, "decrypt", "--accept-changes", "--identity", identity); code != exitOK {
+		t.Fatalf("accept merged result: %d\n%s", code, out)
 	}
 	plaintext, err := os.ReadFile(filepath.Join(repo, ".env"))
 	if err != nil {
@@ -101,8 +117,8 @@ func TestMergeDriverRealConflictPrintsKeyNamesOnly(t *testing.T) {
 	if out, code := run(t, repo, "git", "checkout", mainBranch); code != exitOK {
 		t.Fatalf("checkout %s: %d\n%s", mainBranch, code, out)
 	}
-	if out, code := run(t, repo, bin, "decrypt", "--identity", identity); code != exitOK {
-		t.Fatalf("restore main plaintext: %d\n%s", code, out)
+	if out, code := run(t, repo, bin, "decrypt", "--accept-changes", "--identity", identity); code != exitOK {
+		t.Fatalf("accept and restore main plaintext: %d\n%s", code, out)
 	}
 	commitEncryptedBranch(t, repo, bin, identity, env, "TOKEN=ours-secret\n", "ours changes token")
 
@@ -291,8 +307,8 @@ func TestMergeContinueRejectsUnsignedBranchSide(t *testing.T) {
 	if out, code := run(t, repo, "git", "checkout", mainBranch); code != exitOK {
 		t.Fatalf("checkout main: %d\n%s", code, out)
 	}
-	if out, code := run(t, repo, bin, "decrypt", "--identity", identity); code != exitOK {
-		t.Fatalf("restore main plaintext: %d\n%s", code, out)
+	if out, code := run(t, repo, bin, "decrypt", "--accept-changes", "--identity", identity); code != exitOK {
+		t.Fatalf("accept and restore main plaintext: %d\n%s", code, out)
 	}
 	commitEncryptedBranch(t, repo, bin, identity, env, "A=ours\nB=base\n", "ours changes A")
 	if _, code := runEnv(t, repo, env, "git", "merge", "unsigned-side"); code == exitOK {

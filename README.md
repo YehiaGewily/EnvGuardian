@@ -82,16 +82,23 @@ go run ./cmd/envguardian encrypt                      # .env → .env.age (+ .en
 
 git add .envguardian/ .env.age .env.age.sig          # commit the PUBLIC, encrypted files (never .env)
 git commit -m "chore: add encrypted env config"
+go run ./cmd/envguardian decrypt --accept-changes    # record that commit as your accepted state
 ```
 
-**Teammate — after cloning or pulling:**
+**Teammate — after cloning:** the first decryption in a clone is an explicit trust
+decision. Review who can decrypt and what you are about to install, then accept it:
 
 ```bash
-go run ./cmd/envguardian decrypt                     # .env.age → local .env (mode 0600)
+go run ./cmd/envguardian list-recipients             # review recipients.toml
+go run ./cmd/envguardian decrypt --accept-changes    # record HEAD as accepted; .env.age → .env (mode 0600)
 ```
 
-If upstream changed the config, recipients, or ciphertext, EnvGuardian won't silently
-rewrite your `.env`. Review the change, then accept it explicitly:
+**After that:** inside a Git repository, `decrypt` installs only the commit you last
+accepted. Plain `decrypt` restores that snapshot (for example after deleting `.env`). If the
+config, recipients, any ciphertext, or any signature at `HEAD` differs from the accepted
+commit — after a pull, checkout, or merge, including your own commits — it writes nothing,
+lists the changed key and recipient names, and exits 1. Review the change, then accept it
+explicitly:
 
 ```bash
 go run ./cmd/envguardian decrypt --accept-changes
@@ -157,10 +164,13 @@ release hardening.
   uncommitted local plaintext because CI cannot observe a developer's `.env`.
 - `check-local` compares the developer's plaintext with decryptable ciphertext and fails on
   a missing plaintext unless `--allow-missing` is explicit.
-- Automatic hooks compare the exact incoming commit with a local accepted commit. Changes to
-  config, recipients, ciphertext, or signature require an explicit `decrypt
-  --accept-changes`; hook decryption reads and authenticates committed blobs rather than
-  unreviewed working-tree paths.
+- Automatic hooks and plain `decrypt` inside a Git repository share one gate: they compare
+  `HEAD` with a local accepted commit. Changes to config, recipients, ciphertext, or
+  signature require an explicit `decrypt --accept-changes`, and so does a clone with no
+  accepted commit. Both read and authenticate committed blobs rather than unreviewed
+  working-tree paths; plain `decrypt` also refuses uncommitted managed changes unless leaving
+  the local plaintext untouched already matches them. Outside a Git repository, `decrypt`
+  reads the files on disk.
 - The pre-commit hook verifies config, recipients, lock, ciphertext, and detached signature
   from the Git index, rejects staged plaintext, detects partial staging, and requires an
   identity when managed state changes. Commits touching no managed file run structural
@@ -216,6 +226,9 @@ EnvGuardian does **not** protect against:
   migration artifacts remain visibly weaker and still depend on explicit review/acceptance.
 - **A malicious repository configuration in `v0.1.0`.** Automatic decryption can write
   outside the repository; see the advisory in [SECURITY.md](SECURITY.md).
+- **Plain `decrypt` in `v0.2.0` and `v0.2.1`.** It skipped the accepted-commit check, so it
+  installed an unreviewed branch's ciphertext that the hook had refused; see the advisory in
+  [SECURITY.md](SECURITY.md).
 
 Before any future supported release, deployments must enforce pull-request reviews, signed
 commits, protected `main`, required CI, and review of the security-sensitive paths in

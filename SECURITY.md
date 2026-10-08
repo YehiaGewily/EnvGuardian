@@ -36,6 +36,28 @@ This advisory is intentionally public because there is no supported release to
 protect and users need an unambiguous warning. The tracked remediation is in
 [docs/PLAN.md](docs/PLAN.md).
 
+## Known advisory: plain `decrypt` skipped the accepted-commit check
+
+**Affected:** `v0.2.0` and `v0.2.1` release candidates. Fixed on `main`, not yet
+released.
+
+The post-checkout and post-merge hooks refuse to write plaintext when a
+commit's config, recipients, ciphertext, or signature differs from the locally
+accepted commit, and tell the user that `decrypt --accept-changes` is the
+confirmation step. Plain `envguardian decrypt` did not apply that check: it
+verified the working-tree signature against the working-tree recipients file
+and decrypted. A branch author who is not a recipient could add their own key
+to `recipients.toml`, run `encrypt --force`, and produce a signature that
+verifies against that branch's recipients. After the hook refused the branch,
+running plain `decrypt` overwrote the local `.env` with the branch author's
+values without any confirmation.
+
+On `main`, plain `decrypt` inside a Git repository applies the hook's
+comparison and refuses before any plaintext write, decrypts only committed
+`HEAD` blobs, and refuses in a clone with no accepted commit. Until a fixed
+version is released, with `v0.2.0` or `v0.2.1` use only
+`decrypt --accept-changes`, and only after reviewing the commit.
+
 ## Security boundary
 
 ### Windows plaintext permissions
@@ -68,6 +90,19 @@ fail closed. See [docs/threat-model.md](docs/threat-model.md).
 Removing a recipient only prevents access to future ciphertext. It cannot
 remove access to historical ciphertext in git; affected credentials must be
 rotated at their source.
+
+### Accepted-commit trust state
+
+Inside a Git repository, neither the hooks nor plain `decrypt` write plaintext
+unless `HEAD`'s config, recipients, ciphertext, and detached signatures are
+byte-identical to the commit last accepted in the local, gitignored
+`.envguardian/auto-decrypt-state.toml`. A fresh clone has no accepted commit,
+so its first decryption must be `decrypt --accept-changes`. Plaintext is
+written only from committed `HEAD` blobs, never from uncommitted working-tree
+ciphertext. Outside a Git repository, `decrypt` reads the files on disk; if a
+`.git` entry or `GIT_DIR` points at a repository Git cannot open, it fails
+closed. Accepting a commit is a human review decision; see
+[docs/threat-model.md](docs/threat-model.md).
 
 ## Reporting a vulnerability
 

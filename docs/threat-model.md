@@ -77,6 +77,34 @@ envguardian decrypt --accept-changes
 That command validates and decrypts the exact `HEAD` snapshot, writes plaintext,
 and updates local trust state only after successful writes.
 
+### Manual decryption inside a repository
+
+Plain `envguardian decrypt` inside a Git work tree passes through the same
+comparison as the hook (one shared function), so it is not a way around a
+blocked hook. In `v0.2.0` and `v0.2.1` it read and decrypted the working tree
+without consulting trust state, which let a branch that added its author to
+`recipients.toml` and re-sealed the ciphertext overwrite local plaintext that
+the hook had just refused to write. Now:
+
+- If config, recipients, any ciphertext, or any detached signature at `HEAD`
+  differs from the accepted commit, it writes nothing and reports key and
+  recipient names with exit code 1.
+- With no recorded accepted commit (a fresh clone), it refuses. The first trust
+  decision is always the explicit `decrypt --accept-changes`.
+- It writes plaintext only from committed `HEAD` blobs. If a managed file in
+  the working tree differs from `HEAD`, it refuses, with one exception: an
+  uncommitted ciphertext or signature whose signature verifies against `HEAD`'s
+  recipients and whose plaintext is byte-identical to the current local file is
+  left untouched. That exception writes nothing, so it cannot install
+  uncommitted content; it only keeps a developer's own `encrypt` followed by
+  `decrypt` from failing. Uncommitted config or recipients changes always
+  refuse.
+- It never updates trust state.
+- Outside a Git repository it decrypts the files on disk, because there is no
+  branch to receive. If a `.git` entry or `GIT_DIR` indicates a repository that
+  Git cannot open, it fails closed instead of treating the directory as
+  outside a repository.
+
 Commit-signature diagnostics remain supporting context, not ciphertext
 authentication. The detached `.sig` artifact is verified independently against
 the current recipients file before any automatic plaintext write.

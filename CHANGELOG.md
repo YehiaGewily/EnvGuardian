@@ -18,6 +18,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Plain `decrypt` inside a Git repository no longer bypasses the accepted-commit
+  trust check. In v0.2.0 and v0.2.1 it decrypted the working tree without
+  consulting trust state, so after the post-checkout or post-merge hook refused
+  a branch that added its author to `recipients.toml` and re-sealed the
+  ciphertext with `encrypt --force`, plain `decrypt` overwrote local `.env` with
+  that branch's values. It now runs the hook's comparison (one shared function)
+  and, if config, recipients, any ciphertext, or any signature at `HEAD` differs
+  from the accepted commit, refuses before writing plaintext, lists only key and
+  recipient names, and exits 1. It also refuses when no accepted commit is
+  recorded, so the first decryption in a fresh clone must be
+  `decrypt --accept-changes`. It writes plaintext only from committed `HEAD`
+  blobs and refuses uncommitted managed changes, except that an uncommitted
+  ciphertext that verifies and decrypts to exactly the local plaintext (after
+  your own `encrypt`) leaves that file untouched and succeeds. Outside a Git
+  repository `decrypt` still reads the files on disk; a `.git` entry or
+  `GIT_DIR` that Git cannot open fails closed.
 - On Windows, owner-only writes (mode `0600`: decrypted plaintext, local
   auto-decrypt state, and signing temporaries) are now created with a
   protected DACL granting only the current user, applied before any content is

@@ -80,7 +80,7 @@ Everything lives under `.envguardian/`, next to your `.age` files.
 | `.env.age` | ✅ Yes | age-encrypted ciphertext of `.env`. |
 | `.env.age.sig` | ✅ Yes | Detached SSH signature over the ciphertext binding. |
 | `.env` | 🚫 **Gitignored** | Your local plaintext. **Must never be committed.** |
-| `.envguardian/auto-decrypt-state.toml` | 🚫 **Gitignored (local)** | Records the last commit you explicitly accepted for auto-decrypt. Local trust state. |
+| `.envguardian/auto-decrypt-state.toml` | 🚫 **Gitignored (local)** | Records the last commit you accepted; the hooks and plain `decrypt` install nothing else. Local trust state. |
 
 `init` adds `.env` and `auto-decrypt-state.toml` to `.gitignore` for you, and adds
 `*.age -text` and `*.age.sig -text` to `.gitattributes` so Git never converts the line
@@ -109,25 +109,42 @@ envguardian encrypt
 # 4. Commit the PUBLIC, encrypted files (never .env)
 git add .envguardian/ .env.age .env.age.sig
 git commit -m "chore: add encrypted env config"
+
+# 5. Record that commit as your accepted state
+envguardian decrypt --accept-changes
 ```
 
 `init` seeds `recipients.toml` with the public key derived from your identity (default
-`~/.ssh/id_ed25519`, or `--identity <path>`), so you can decrypt immediately.
+`~/.ssh/id_ed25519`, or `--identity <path>`), so you are a recipient from the start. Inside
+a Git repository, `decrypt` installs only a commit you have accepted, which is why step 5
+exists.
 
 ### B. Teammate workflow (clone / pull)
 
+The first decryption in a fresh clone is an explicit trust decision: no accepted commit is
+recorded yet, so plain `decrypt` refuses. Review the recipients and config you are about to
+trust, then accept:
+
 ```bash
-# Decrypt every ciphertext → local plaintext (mode 0600)
-envguardian decrypt
+# Who can decrypt? (also read .envguardian/config.toml)
+envguardian list-recipients
+# Record HEAD as accepted and decrypt every ciphertext → local plaintext (mode 0600)
+envguardian decrypt --accept-changes
+# Optional: re-decrypt automatically on checkout/pull when nothing managed changed
+envguardian install-hooks
 ```
 
-If upstream changed `config.toml`, `recipients.toml`, or any ciphertext, EnvGuardian's
-hooks won't silently rewrite your local `.env`. After **reviewing** the incoming change,
-accept it explicitly:
+After that, plain `envguardian decrypt` restores the accepted snapshot, for example after
+you delete `.env`. If upstream changed `config.toml`, `recipients.toml`, any ciphertext, or
+any signature, neither the hooks nor plain `decrypt` will rewrite your local `.env`; both
+list the changed key and recipient names and exit 1. After **reviewing** the incoming
+change, accept it explicitly:
 
 ```bash
 envguardian decrypt --accept-changes
 ```
+
+See [`decrypt` and the accepted commit](#decrypt-and-the-accepted-commit) for every case.
 
 ### C. Changing a secret
 
@@ -138,7 +155,14 @@ envguardian encrypt
 # 3. Commit the encrypted artifacts
 git add .env.age .env.age.sig .envguardian/lock.toml
 git commit -m "feat(config): add API_RATE_LIMIT"
+# 4. Record your own commit as accepted
+envguardian decrypt --accept-changes
 ```
+
+Your own commit changes the ciphertext relative to your accepted commit, so until step 4 the
+hooks and plain `decrypt` treat it like any other change. Between steps 2 and 3, plain
+`decrypt` exits 0 without touching `.env`, because the uncommitted ciphertext decrypts to
+exactly what `.env` already holds.
 
 `encrypt` is **idempotent**: if neither the content nor the recipient set changed, it
 prints `unchanged` and rewrites nothing (age is randomized, so re-encrypting blindly would
@@ -273,6 +297,29 @@ key/value), and reports which key names are added/removed/changed.
 
 ## 7. Git integration
 
+### `decrypt` and the accepted commit
+
+Inside a Git repository, `decrypt` never installs content you have not accepted. Your
+accepted commit lives in the gitignored `.envguardian/auto-decrypt-state.toml`; only
+`decrypt --accept-changes` and a hook run that found nothing changed update it. Plain
+`decrypt` uses the same comparison as the post-checkout/post-merge hook and never updates
+it.
+
+| Situation | `decrypt` | `decrypt --accept-changes` |
+|---|---|---|
+| `HEAD`'s config, recipients, ciphertext, and signatures are byte-identical to the accepted commit | Verifies signatures and writes plaintext from `HEAD`'s committed files. | Same, then records `HEAD`. |
+| Any of them differs (after a pull, checkout, merge, or your own commit) | Writes nothing; lists changed key and recipient names; exit `1`. | Verifies and writes `HEAD`'s plaintext, then records `HEAD`. |
+| No accepted commit is recorded (fresh clone), or it is no longer in the repository | Writes nothing; exit `1`. | As above. |
+| Uncommitted change to a ciphertext or signature (for example after `encrypt`) | Exit `0` without touching that plaintext only if the uncommitted ciphertext verifies against `HEAD`'s recipients and decrypts to exactly the file's current bytes; otherwise writes nothing, exit `1`. | Reads only `HEAD` and overwrites plaintext with it. Commit your changes first. |
+| Uncommitted change to `config.toml` or `recipients.toml` | Writes nothing; exit `1`. | Reads only `HEAD`; uncommitted files are ignored. |
+| Not a Git repository | Decrypts the files on disk after verifying their signatures. | Fails: it needs a committed snapshot. |
+| A `.git` entry exists (or `GIT_DIR` is set) but Git cannot open the repository | Writes nothing; exit `1`. | Fails. |
+
+`decrypt` writes plaintext only from committed blobs at `HEAD`. It reads an uncommitted
+ciphertext only to compare it with your current plaintext, so an uncommitted file — for
+example one copied in with `git checkout other-branch -- .env.age` — can never supply
+plaintext. Refusals report key and recipient names only, never values.
+
 ### Hooks
 
 ```bash
@@ -288,7 +335,9 @@ Installs three hooks (in managed, clearly-delimited blocks so they coexist with 
 - **`post-merge` / `post-checkout`** — after a pull/checkout, if managed inputs changed it
   **alerts** you (reporting only key and recipient *names*, plus signature status) and
   requires `envguardian decrypt --accept-changes`. It never auto-writes plaintext from an
-  unreviewed branch.
+  unreviewed branch, and plain `envguardian decrypt` applies the same check, so it is not a
+  way around the alert. Git ignores a post-merge hook's exit status, so a blocked pull still
+  completes; read the alert.
 
 ### Secret-safe diff
 
@@ -330,7 +379,7 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 |---|---|---|
 | `envguardian init` | Scaffold config, seed recipients with your key, update `.gitignore` and `.gitattributes`. | `--name`, `--file` (default `.env`) |
 | `envguardian encrypt` | Encrypt every plaintext → ciphertext (idempotent). | `--force`, `--fix` |
-| `envguardian decrypt` | Decrypt every ciphertext → plaintext (mode `0600`). | `--accept-changes` |
+| `envguardian decrypt` | Decrypt every ciphertext → plaintext (mode `0600`). In a Git repository, only the accepted commit; `--accept-changes` reviews-and-accepts `HEAD`. | `--accept-changes` |
 | `envguardian add-recipient` | Add a recipient and re-encrypt to the new set. | `--github`, `--key`, `--ssh`, `--name` |
 | `envguardian revoke NAME` | Revoke a recipient; record exposed key names for rotation. | — |
 | `envguardian list-recipients` | List who can decrypt. | `--json` |
@@ -373,6 +422,9 @@ ones, so a non-zero exit tells you *what kind* of thing went wrong.
 | `--json is not supported by "…"` (exit 3) | `--json` only works on `check`, `list-recipients`, `rotation status`, `rotation done`. |
 | `decrypt` / `check` fails with exit **2** | No usable identity, or you're not a recipient. Pass `--identity <path>`, or ask to be added. |
 | Post-merge/checkout says managed inputs changed | Review the change, then `envguardian decrypt --accept-changes`. |
+| `decryption blocked for commit …` (exit 1) | `HEAD`'s managed files differ from your accepted commit, or none is recorded (fresh clone). Review the listed key and recipient names and the commits that changed them (`git log -p -- .envguardian/`), then `envguardian decrypt --accept-changes`. |
+| `decryption blocked: managed files differ from commit …` (exit 1) | Uncommitted changes to managed files. If you made them, commit and run `decrypt --accept-changes`; otherwise review them and restore with `git restore --source=HEAD --staged --worktree -- <path>`. |
+| `… indicates a Git repository, but Git could not open it` (exit 1) | A `.git` entry or `GIT_DIR` exists but Git failed (broken `gitdir:`, `safe.directory`, Git not on `PATH`). `decrypt` fails closed; fix Git and retry. |
 | `encrypt` refuses: plaintext not gitignored | Add the file to `.gitignore`, or run `envguardian encrypt --fix`. |
 | Exit **4** on decrypt/check | The `.age.sig` is missing or wasn't signed by a *current* recipient. Re-seal with `encrypt`, or investigate provenance. |
 | `refusing to revoke the last recipient` | Add a replacement recipient before revoking. |
