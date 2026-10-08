@@ -44,6 +44,13 @@ loaded. Resolution:
 Decrypted bytes must parse completely as dotenv before a mode-`0600` atomic
 plaintext write. There is no bypass flag.
 
+On Windows, mode-`0600` writes are created with a protected DACL whose only
+entry allows the current process user, applied at creation and confirmed before
+any content is written; otherwise the write fails. This does not protect
+plaintext from Administrators, SYSTEM, or backup software (the equivalent of
+root on Unix), and files written by older versions keep their inherited ACL
+until rewritten.
+
 ## Automatic-decryption boundary
 
 Automatic post-checkout and post-merge behavior stores the resolved commit of

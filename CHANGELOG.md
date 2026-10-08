@@ -6,6 +6,37 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `init` now writes `*.age -text` and `*.age.sig -text` to `.gitattributes`.
+  Without them, a teammate cloning with `core.autocrlf=true` (the Git for
+  Windows default) received line-converted ciphertext, so `check` reported a
+  lock digest and signature mismatch and `decrypt` refused with exit code 4.
+  Repositories initialized with v0.2.0 or v0.2.1 should add both lines to
+  `.gitattributes` and commit them (`envguardian merge --install` also adds
+  them).
+
+### Security
+
+- On Windows, owner-only writes (mode `0600`: decrypted plaintext, local
+  auto-decrypt state, and signing temporaries) are now created with a
+  protected DACL granting only the current user, applied before any content is
+  written. If the DACL cannot be applied or confirmed, the write fails and
+  leaves no temporary file. Administrators, SYSTEM, and backup tools can still
+  read these files, and files written by older versions keep their old ACL
+  until rewritten. Tools that replace `.env` (editor "safe write", copying or
+  restoring the file) still produce a file with the directory's inherited ACL.
+
+## [0.2.1] - 2026-08-01
+
+Documentation-only release candidate; the binary behaves like v0.2.0.
+
+### Changed
+
+- Added the GitHub Pages landing page, refreshed branding assets, and updated
+  README installation notes for the published release-candidate binaries and
+  Homebrew cask.
+
 ## [0.2.0] - 2026-07-30
 
 First supported release candidate. `v0.1.1` was not cut before the v0.2
@@ -116,6 +147,7 @@ and must not be used for real secrets.
 
 See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
 
-[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/YehiaGewily/envguardian/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YehiaGewily/envguardian/tree/v0.1.0

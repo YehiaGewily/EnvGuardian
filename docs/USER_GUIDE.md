@@ -1,4 +1,4 @@
-# EnvGuardian — User Guide (v0.2.0)
+# EnvGuardian — User Guide (v0.2)
 
 Commit your team's `.env` to git — **encrypted** — so cloning or pulling the repo is all
 it takes to have working local configuration. Access is a small, reviewable file of
@@ -13,16 +13,20 @@ encrypted `.env` in git that exactly the right people can open.
 
 > ### ⚠️ Read this first — pre-release status
 >
-> EnvGuardian is **pre-release**. `v0.2.0` is the first *supported* release candidate;
+> EnvGuardian is **pre-release**. `v0.2.0` and `v0.2.1` are release candidates, not yet supported;
 > `v0.1.0` was a development tag with known critical findings — **do not install hooks or
 > binaries from `v0.1.0`.**
 >
 > - **Do not use it for real production secrets yet.** Use throwaway/dev values until the
 >   release is finalized and every install path is publicly verified.
-> - **Windows is not yet suitable for real secrets.** Plaintext is written with mode
->   `0600` on Unix, but that does **not** install a restrictive Windows ACL — other local
->   users may be able to read the decrypted `.env`.
-> - This guide describes the **implemented** behavior of `v0.2.0`. If the README and this
+> - **Windows file permissions.** Plaintext is written with mode `0600` on Unix and with a
+>   protected owner-only DACL (current user only, nothing inherited) on Windows. The write
+>   fails rather than falling back to inherited permissions. Administrators, SYSTEM, and
+>   backup tools can still read it, and a `.env` written by an older version keeps its old
+>   ACL until EnvGuardian rewrites it. Editing `.env` with a tool that replaces the file
+>   (for example an editor's "safe write") also resets its ACL; re-run `envguardian decrypt`
+>   or use `icacls` to restore owner-only access.
+> - This guide describes the **implemented** behavior of the `v0.2` line. If the README and this
 >   guide ever disagree, trust the source and file an issue.
 
 ---
@@ -78,7 +82,12 @@ Everything lives under `.envguardian/`, next to your `.age` files.
 | `.env` | 🚫 **Gitignored** | Your local plaintext. **Must never be committed.** |
 | `.envguardian/auto-decrypt-state.toml` | 🚫 **Gitignored (local)** | Records the last commit you explicitly accepted for auto-decrypt. Local trust state. |
 
-`init` adds `.env` and `auto-decrypt-state.toml` to `.gitignore` for you.
+`init` adds `.env` and `auto-decrypt-state.toml` to `.gitignore` for you, and adds
+`*.age -text` and `*.age.sig -text` to `.gitattributes` so Git never converts the line
+endings of ciphertext or signatures (both are verified byte-for-byte). Commit
+`.gitattributes`. Repositories initialized with v0.2.0 or v0.2.1 should add those two lines
+by hand; without them, Windows teammates with `core.autocrlf=true` get a lock digest and
+signature mismatch after cloning.
 
 ---
 
@@ -319,7 +328,7 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 
 | Command | Purpose | Flags (beyond globals) |
 |---|---|---|
-| `envguardian init` | Scaffold config, seed recipients with your key, update `.gitignore`. | `--name`, `--file` (default `.env`) |
+| `envguardian init` | Scaffold config, seed recipients with your key, update `.gitignore` and `.gitattributes`. | `--name`, `--file` (default `.env`) |
 | `envguardian encrypt` | Encrypt every plaintext → ciphertext (idempotent). | `--force`, `--fix` |
 | `envguardian decrypt` | Decrypt every ciphertext → plaintext (mode `0600`). | `--accept-changes` |
 | `envguardian add-recipient` | Add a recipient and re-encrypt to the new set. | `--github`, `--key`, `--ssh`, `--name` |

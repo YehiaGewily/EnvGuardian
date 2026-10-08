@@ -141,6 +141,45 @@ func TestInitGolden(t *testing.T) {
 	if !strings.Contains(string(gi), ".envguardian/auto-decrypt-state.toml") {
 		t.Errorf(".gitignore missing local automatic-decryption state: %q", gi)
 	}
+	ga, _ := os.ReadFile(".gitattributes")
+	for _, line := range []string{"*.age -text", "*.age.sig -text"} {
+		if !strings.Contains(string(ga), line+"\n") {
+			t.Errorf(".gitattributes missing %q: %q", line, ga)
+		}
+	}
+}
+
+// TestCRLFCheckoutKeepsCiphertextVerifiable clones an initialized repository
+// with core.autocrlf=true, the Git for Windows default. Ciphertext and
+// signatures are verified byte-for-byte, so if init did not mark them -text the
+// clone's lock digest and signature checks would fail.
+func TestCRLFCheckoutKeepsCiphertextVerifiable(t *testing.T) {
+	repo := gitInitRepo(t)
+	idPath := filepath.Join(t.TempDir(), "id.txt")
+	writeAgeID(t, idPath)
+	if out, code := runCLICombinedInDir(t, repo, "init", "--identity", idPath, "--name", "alice"); code != exitOK {
+		t.Fatalf("init exit = %d\n%s", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("API_KEY=secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCLICombinedInDir(t, repo, "encrypt", "--identity", idPath); code != exitOK {
+		t.Fatalf("encrypt exit = %d\n%s", code, out)
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "seal"}} {
+		if out, code := run(t, repo, "git", args...); code != 0 {
+			t.Fatalf("git %v: %d\n%s", args, code, out)
+		}
+	}
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	if out, code := run(t, repo, "git", "-c", "core.autocrlf=true", "clone", "-q",
+		"-c", "core.autocrlf=true", "-c", "gc.auto=0", "-c", "maintenance.auto=false", repo, clone); code != 0 {
+		t.Fatalf("git clone: %d\n%s", code, out)
+	}
+	if out, code := runCLICombinedInDir(t, clone, "check", "--identity", idPath); code != exitOK {
+		t.Fatalf("check in core.autocrlf=true clone exit = %d, want 0\n%s", code, out)
+	}
 }
 
 func TestInitRefusesOverwrite(t *testing.T) {

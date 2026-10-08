@@ -7,8 +7,9 @@ unreleased development snapshot and must not be used for real secrets.
 
 | Version | Supported |
 |---|---|
+| `v0.2.1` release candidate | No — pending Stage G verification |
 | `v0.2.0` release candidate | No — pending Stage G verification |
-| `main` before the `v0.2.0` release | No — development only |
+| `main` | No — development only |
 | `v0.1.0` | No — known unsafe development tag |
 
 ## Known advisory: repository path traversal
@@ -39,12 +40,23 @@ protect and users need an unambiguous warning. The tracked remediation is in
 
 ### Windows plaintext permissions
 
-Atomic replacement works on Windows, but the `0600` mode used for plaintext is
-only a Unix permission guarantee. EnvGuardian does not yet install or verify a
-restrictive Windows DACL; access is inherited from the destination directory.
-Until native ACL enforcement is implemented, the Windows build must not be
-treated as providing per-user plaintext-file isolation and must not be used for
-real secrets.
+Owner-only writes (mode `0600`: decrypted plaintext, local auto-decrypt state,
+and temporary signing files) are created on Windows with a protected DACL that
+has a single allow entry for the current process user and no inherited entries.
+The DACL is applied when the temporary file is created, before any content is
+written, and is read back from the open handle; if it cannot be resolved,
+applied, or confirmed (for example on a FAT/exFAT volume that does not store
+ACLs), the write fails and leaves no temporary file. Same-volume rename keeps
+that DACL, including when replacing an existing file.
+
+Limits: Administrators, SYSTEM, and backup software can still read the files,
+as root can on Unix. Accounts that can modify the containing directory can
+still delete or replace files in it. Plaintext written by earlier versions
+keeps its inherited ACL until EnvGuardian rewrites it; run
+`envguardian decrypt` to rewrite it, or fix it with `icacls`. The same applies
+after any other tool replaces the file: editors that save by writing a new file
+and renaming it over `.env`, copying a file over it, or restoring it from a
+backup all produce a file with the directory's inherited ACL.
 
 age encrypts to recipients, but it does not authenticate the sender. Successful
 decryption proves neither who created a ciphertext nor that it came from a

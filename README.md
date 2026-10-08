@@ -191,11 +191,13 @@ M0/M1/M2/M3 plan is historical.
 ## Threat model
 
 > [!IMPORTANT]
-> **Windows permission limitation.** EnvGuardian writes plaintext atomically, but Go's
-> `0600` mode has no Windows ACL equivalent. The current development build does not install
-> or verify a restrictive DACL, so other local accounts may retain access through inherited
-> directory permissions. **Do not use EnvGuardian for real secrets on Windows** until native
-> ACL enforcement lands.
+> **Windows file permissions.** On Windows, decrypted plaintext and local auto-decrypt state
+> are created with a protected, owner-only DACL: one entry for the current user, no inherited
+> entries, applied before any content is written. If that DACL cannot be applied or read back
+> (for example on FAT/exFAT volumes), the write fails instead of falling back to inherited
+> permissions. As with root on Unix, Administrators, SYSTEM, and backup tools can still read
+> these files, and plaintext written by older versions keeps its old ACL until EnvGuardian
+> rewrites it.
 
 The intended confidentiality property is narrow: repository read access alone does not
 reveal plaintext without a recipient identity, assuming age itself is used correctly. See the
