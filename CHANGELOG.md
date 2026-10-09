@@ -16,6 +16,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Go 1.25, whose standard library has known vulnerabilities reachable from
   EnvGuardian.
 
+### Added
+
+- Commands that write managed or plaintext files (`init`, `encrypt`,
+  `decrypt`, `add-recipient`, `revoke`, `rotation done`, `install-hooks`,
+  `diff --install`, `merge`, and the automatic-decryption hook) take an
+  exclusive, non-blocking operating-system lock on `.git/envguardian.lock` (in
+  the user cache directory outside Git). A second concurrent command exits 1
+  instead of interleaving its transaction. The lock is released when the
+  process exits, so a crash never leaves a stale lock. Read-only commands do
+  not take it.
+
 ### Changed
 
 - CI tests Go 1.25 (the module minimum) and 1.27, runs `govulncheck`, and

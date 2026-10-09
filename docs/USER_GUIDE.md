@@ -480,6 +480,7 @@ ones, so a non-zero exit tells you *what kind* of thing went wrong.
 | `refusing to revoke the last recipient` | Add a replacement recipient before revoking. |
 | `--github` fails: user has N keys | GitHub import currently needs exactly one `ssh-ed25519` key; use `--key`/`--ssh` instead. |
 | Merge "intentionally paused" (exit 1) | Expected. Run `envguardian merge --continue` to finalize, sign, and stage. |
+| `another envguardian command is running in this repository` (exit 1) | Commands that write files take an exclusive lock (`.git/envguardian.lock`) so they cannot interleave, for example an IDE checkout firing the post-checkout hook while you run `encrypt`. Wait for the other command and retry. The operating system releases the lock when a process exits, so a crash never leaves a stale lock; the empty lock file can stay. |
 
 ---
 

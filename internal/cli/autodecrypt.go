@@ -40,7 +40,7 @@ func newHookAutoDecryptCmd(flags *globalFlags) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runHookAutoDecrypt(cmd, flags)
+			return exclusive(flags, func() error { return runHookAutoDecrypt(cmd, flags) })
 		},
 	}
 }

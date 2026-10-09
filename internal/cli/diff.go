@@ -26,7 +26,7 @@ func newDiffCmd(flags *globalFlags) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if install {
-				return installDiffDriver(cmd, flags)
+				return exclusive(flags, func() error { return installDiffDriver(cmd, flags) })
 			}
 			return workingDiff(cmd, flags)
 		},

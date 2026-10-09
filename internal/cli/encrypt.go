@@ -18,7 +18,7 @@ func newEncryptCmd(flags *globalFlags) *cobra.Command {
 		Short: "Encrypt every plaintext file to the current recipients (idempotent)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runEncrypt(cmd, flags, force, fix)
+			return exclusive(flags, func() error { return runEncrypt(cmd, flags, force, fix) })
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "re-encrypt even when the existing ciphertext can't be verified")

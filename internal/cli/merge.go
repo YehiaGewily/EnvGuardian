@@ -33,10 +33,12 @@ func newMergeCmd(flags *globalFlags) *cobra.Command {
 			if install == continueMerge {
 				return withExit(exitConfig, errors.New("specify exactly one of --install or --continue"))
 			}
-			if install {
-				return installMergeDriver(cmd, flags)
-			}
-			return continueCiphertextMerge(cmd, flags)
+			return exclusive(flags, func() error {
+				if install {
+					return installMergeDriver(cmd, flags)
+				}
+				return continueCiphertextMerge(cmd, flags)
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&install, "install", false, "register the merge drivers in local Git config and .gitattributes")

@@ -26,7 +26,7 @@ func newRevokeCmd(flags *globalFlags) *cobra.Command {
 			"they could read to the rotation ledger. " + historyWarning + ".",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRevoke(cmd, flags, args[0])
+			return exclusive(flags, func() error { return runRevoke(cmd, flags, args[0]) })
 		},
 	}
 }
@@ -193,31 +193,35 @@ func newRotationDoneCmd(flags *globalFlags) *cobra.Command {
 		Short: "Mark one rotated key name complete",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := secureRootPaths(flags)
-			if err != nil {
-				return err
-			}
-			ledger, err := rotation.Load(p.Rotation)
-			if err != nil {
-				return withExit(exitConfig, err)
-			}
-			key := strings.TrimSpace(args[0])
-			if !ledger.Done(key) {
-				return withExit(exitOutOfSync, fmt.Errorf("key %q is not pending rotation", key))
-			}
-			if err := ledger.Save(p.Rotation); err != nil {
-				return err
-			}
-			if flags.json {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-					Done    string   `json:"done"`
-					Pending []string `json:"pending"`
-				}{Done: key, Pending: ledger.Keys()})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "marked %s rotated\n", key)
-			return nil
+			return exclusive(flags, func() error { return runRotationDone(cmd, flags, args[0]) })
 		},
 	}
+}
+
+func runRotationDone(cmd *cobra.Command, flags *globalFlags, keyArg string) error {
+	p, err := secureRootPaths(flags)
+	if err != nil {
+		return err
+	}
+	ledger, err := rotation.Load(p.Rotation)
+	if err != nil {
+		return withExit(exitConfig, err)
+	}
+	key := strings.TrimSpace(keyArg)
+	if !ledger.Done(key) {
+		return withExit(exitOutOfSync, fmt.Errorf("key %q is not pending rotation", key))
+	}
+	if err := ledger.Save(p.Rotation); err != nil {
+		return err
+	}
+	if flags.json {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+			Done    string   `json:"done"`
+			Pending []string `json:"pending"`
+		}{Done: key, Pending: ledger.Keys()})
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "marked %s rotated\n", key)
+	return nil
 }
 
 func printRotationStatus(cmd *cobra.Command, flags *globalFlags, keys []string) error {

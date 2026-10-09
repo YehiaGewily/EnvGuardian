@@ -36,7 +36,7 @@ func newInstallHooksCmd(flags *globalFlags) *cobra.Command {
 		Short: "Install git hooks: auto-decrypt after pull, block plaintext commits",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInstallHooks(cmd, flags, uninstall)
+			return exclusive(flags, func() error { return runInstallHooks(cmd, flags, uninstall) })
 		},
 	}
 	cmd.Flags().BoolVar(&uninstall, "uninstall", false, "remove EnvGuardian's hook blocks")

@@ -21,7 +21,7 @@ func newAddRecipientCmd(flags *globalFlags) *cobra.Command {
 		Short: "Add a recipient and re-encrypt to the new set",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAddRecipient(cmd, flags, github, key, sshPath, name)
+			return exclusive(flags, func() error { return runAddRecipient(cmd, flags, github, key, sshPath, name) })
 		},
 	}
 	cmd.Flags().StringVar(&github, "github", "", "fetch the recipient's ed25519 key from github.com/<user>.keys")
