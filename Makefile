@@ -29,9 +29,14 @@ test-diff:
 lint:
 	golangci-lint run ./...
 
-## fuzz: run the dotenv parser fuzz target for 60s
+## fuzz: run the dotenv parser for 60s and every other fuzz target for 20s
 fuzz:
-	go test -run '^$$' -fuzz 'FuzzParse' -fuzztime 60s ./internal/dotenv
+	go test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime 60s ./internal/dotenv
+	go test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime 20s ./internal/config
+	go test -run '^$$' -fuzz '^FuzzParseRecipients$$' -fuzztime 20s ./internal/keys
+	go test -run '^$$' -fuzz '^FuzzParseLock$$' -fuzztime 20s ./internal/crypt
+	go test -run '^$$' -fuzz '^FuzzParse$$' -fuzztime 20s ./internal/rotation
+	go test -run '^$$' -fuzz '^FuzzMergeDotenv$$' -fuzztime 20s ./internal/gitint
 
 ## snapshot: build unpublished release artifacts locally
 snapshot:

@@ -55,6 +55,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Native Go fuzz targets now cover the config, recipients, lock, and
+  rotation-ledger parsers and the semantic merge. Config fuzzing asserts that
+  every accepted mapping resolves inside the repository and outside `.git/`;
+  merge fuzzing asserts the conflict set does not depend on which side is
+  ours. CI fuzzes each target on every run.
 - Releases publish an SPDX SBOM per archive and a GitHub build-provenance
   attestation for every archive, SBOM, and `checksums.txt`. Verify a download
   with `gh attestation verify FILE --repo YehiaGewily/EnvGuardian`.

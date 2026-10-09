@@ -49,7 +49,7 @@ across every configured pair and must never partially advance the shared lock.
 make build      # compile with version metadata
 make test       # go test -race ./...
 make lint       # golangci-lint
-make fuzz       # 60s of parser fuzzing
+make fuzz       # parser, config, recipients, lock, ledger, and merge fuzzing
 make test-diff  # build-tagged differential test vs joho/godotenv
 ```
 
@@ -61,7 +61,8 @@ make test-diff  # build-tagged differential test vs joho/godotenv
 
 ## Tests
 
-- Use table-driven tests and native Go fuzzing for the parser.
+- Use table-driven tests and native Go fuzzing for every parser of
+  repository-controlled input.
 - CLI output should use golden files; integration tests should create real git
   repositories under `t.TempDir()`.
 - New parser behavior must update
