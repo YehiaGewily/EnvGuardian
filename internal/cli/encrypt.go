@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
@@ -35,7 +36,13 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 	if err != nil {
 		return err
 	}
+	return sealConfiguration(cmd, flags, p, cfg, force, fix, nil)
+}
 
+// sealConfiguration seals every mapping in cfg and commits ciphertexts,
+// signatures, any additional metadata plans (such as an edited config), and
+// the lock as one rollback-capable transaction.
+func sealConfiguration(cmd *cobra.Command, flags *globalFlags, p config.Paths, cfg *config.Config, force, fix bool, additional []*crypt.FilePlan) error {
 	// Refuse to encrypt a plaintext file git isn't ignoring — committing it
 	// would leak the secret into history.
 	plaintexts := make([]string, len(cfg.Files))
@@ -97,7 +104,7 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		signaturePlans = append(signaturePlans, signaturePlan)
 	}
 	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
-		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: signaturePlans,
+		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: append(signaturePlans, additional...),
 	}); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ metadata:
 before:
   hooks:
     - go mod tidy -diff
+    - sh scripts/completions.sh
 
 builds:
   - id: envguardian
@@ -40,6 +41,11 @@ archives:
         formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+      - completions/*
 
 checksum:
   name_template: checksums.txt
@@ -69,6 +75,10 @@ homebrew_casks:
       - default
     binaries:
       - envguardian
+    completions:
+      bash: completions/envguardian.bash
+      zsh: completions/_envguardian
+      fish: completions/envguardian.fish
     homepage: "https://github.com/YehiaGewily/EnvGuardian"
     description: "Safely share age-encrypted dotenv configuration through Git"
     repository:

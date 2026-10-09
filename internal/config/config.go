@@ -283,11 +283,20 @@ func sameManagedFile(a, b string) bool {
 	return aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo)
 }
 
-// Save writes config.toml atomically.
-func (c *Config) Save(path string) error {
+// Encode returns the config.toml bytes for c.
+func (c *Config) Encode() ([]byte, error) {
 	var b strings.Builder
 	if err := toml.NewEncoder(&b).Encode(c); err != nil {
-		return fmt.Errorf("encode config: %w", err)
+		return nil, fmt.Errorf("encode config: %w", err)
 	}
-	return atomic.WriteFile(path, []byte(b.String()), 0o644)
+	return []byte(b.String()), nil
+}
+
+// Save writes config.toml atomically.
+func (c *Config) Save(path string) error {
+	data, err := c.Encode()
+	if err != nil {
+		return err
+	}
+	return atomic.WriteFile(path, data, 0o644)
 }

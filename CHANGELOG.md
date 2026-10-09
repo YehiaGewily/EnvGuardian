@@ -18,6 +18,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `doctor` diagnoses the local setup without decrypting: config and
+  recipients validity, `ssh-keygen` availability, gitignored plaintext,
+  ciphertext `-text` attributes, hook and driver installation and whether
+  their recorded binary still exists, and whether `HEAD` matches the accepted
+  commit. It supports `--json` and exits non-zero only for failures.
+- `add-file PLAINTEXT` and `remove-file PLAINTEXT` manage file mappings without
+  hand-editing `config.toml`. The config change, ciphertext, signature, and
+  lock are committed as one transaction.
+- Release archives include bash, zsh, fish, and PowerShell completion scripts,
+  and the Homebrew cask installs the bash, zsh, and fish ones.
+- The user guide documents a dedicated CI recipient for full `check`.
+
 - `--signing-key PATH` (or `ENVGUARDIAN_SIGNING_KEY`) names an SSH public key
   whose private half is held by `ssh-agent`, such as 1Password, Secretive, or
   a hardware token. Sealing signs through the agent with

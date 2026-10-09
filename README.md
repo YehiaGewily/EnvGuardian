@@ -132,7 +132,8 @@ diffs and cause needless merge conflicts).
 ## Implementation status
 
 The CLI contains `init`, `encrypt`, `decrypt`, `add-recipient`, `revoke`, `rotation`,
-`list-recipients`, `check`, `check-local`, `install-hooks`, `diff`, and `merge`. **Their
+`list-recipients`, `add-file`, `remove-file`, `check`, `check-local`, `doctor`,
+`install-hooks`, `diff`, `merge`, and `completion`. **Their
 presence does not mean they are ready to protect real secrets** — the project is still in
 release hardening.
 

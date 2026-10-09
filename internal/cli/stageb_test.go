@@ -142,7 +142,7 @@ func TestAddRecipientUndecryptableAndInvalidIdentityModifyNothing(t *testing.T) 
 
 func TestGlobalJSONContractAndVerboseOutput(t *testing.T) {
 	_, stderr, code := runCLI(t, "version", "--json")
-	if code != exitConfig || !strings.Contains(stderr, "only with check or list-recipients") {
+	if code != exitConfig || !strings.Contains(stderr, "only with check, doctor, or list-recipients") {
 		t.Fatalf("unsupported --json exit=%d stderr=%s", code, stderr)
 	}
 	_, stderr, code = runCLI(t, "version", "--verbose")
