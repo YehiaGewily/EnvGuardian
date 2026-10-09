@@ -11,6 +11,7 @@ graphify-out/
 /envguardian
 /envguardian.exe
 /dist/
+/completions/
 *.test
 *.out
 coverage

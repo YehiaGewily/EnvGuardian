@@ -111,7 +111,7 @@ the current recipients file before any automatic plaintext write.
 
 ## Ciphertext authenticity
 
-Stage D binds ciphertext provenance to a current SSH recipient using OpenSSH
+Detached signatures bind ciphertext provenance to a current SSH recipient using OpenSSH
 detached signatures. The signed, domain-separated payload covers the exact
 ciphertext SHA-256, public recipient fingerprint, repository-relative config
 path, plaintext mapping, and ciphertext mapping. This prevents copying a valid
@@ -157,8 +157,8 @@ therefore proves nothing about who authored the new ciphertext. Neither
 
 The boundary is human review of `.envguardian/recipients.toml`, which
 `.github/CODEOWNERS` assigns to code owners. It holds only where the host
-requires code-owner approval before merge; [PLAN.md](PLAN.md) records this
-repository's current branch-protection settings. Reviewers should reject a pull
+requires code-owner approval before merge, so enable that in your branch
+protection. Reviewers should reject a pull
 request that changes recipients and ciphertext (`*.age`, `*.age.sig`, or the
 lock) together unless both the recipient change and the content change are
 confirmed out of band: with the person who is supposed to have made them, over
@@ -170,8 +170,15 @@ anyway, the accepted-commit gate still stops the hooks and plain `decrypt`
 from installing it on a developer's machine until that developer runs
 `decrypt --accept-changes`.
 
-A base-ref comparison mode for `check` is an open follow-up in
-[PLAN.md](PLAN.md).
+`check --base REF` closes the self-added-recipient gap for continuous
+integration. It reads `REF`'s recipients from Git and requires every
+ciphertext that differs from `REF` to carry a signature that verifies against
+a key `REF` already listed, so neither a self-added recipient nor a key swapped
+under an existing name can seal a change. It reports recipient changes by name
+and fails when `REF` cannot be resolved or read. It trusts `REF` itself, so the
+base must be the protected target branch, and it does not judge whether a
+legitimate recipient's change, including adding a teammate, was authorized;
+that remains code-owner review.
 
 ## Does not protect against
 

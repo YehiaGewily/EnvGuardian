@@ -10,7 +10,7 @@
 
 **Commit your team's `.env` to git — encrypted — so cloning the repo is all it takes to have working local config.**
 
-<sub>🌐&nbsp; <a href="https://yehiagewily.github.io/EnvGuardian/">envguardian landing page</a>&nbsp; ·&nbsp; 📖 <a href="docs/USER_GUIDE.md">User Guide</a>&nbsp; ·&nbsp; 🗺️ <a href="docs/PLAN.md">Status &amp; roadmap</a></sub>
+<sub>🌐&nbsp; <a href="https://yehiagewily.github.io/EnvGuardian/">envguardian landing page</a>&nbsp; ·&nbsp; 📖 <a href="docs/USER_GUIDE.md">User Guide</a>&nbsp; ·&nbsp; 📝 <a href="CHANGELOG.md">Changelog</a></sub>
 
 A key-management and git-integration layer over [`age`](https://github.com/FiloSottile/age). *Not* a cryptographic implementation.
 
@@ -28,7 +28,7 @@ A key-management and git-integration layer over [`age`](https://github.com/FiloS
 > is a **release candidate** — unsupported and not yet verified end to end. The `v0.1.0`
 > development tag has a known path-traversal vulnerability in
 > repository-controlled file mappings — **do not install its automatic git hooks.** See
-> [SECURITY.md](SECURITY.md) and the tracked [remediation plan](docs/PLAN.md).
+> [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -66,12 +66,14 @@ Three questions decide everything the tool does:
 > # macOS / Linux — Homebrew
 > brew install --cask yehiagewily/tap/envguardian
 >
-> # Any platform with Go 1.24+
+> # Any platform with Go 1.25+
 > go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.1
 > ```
 > Or run from source without installing — the examples below use `go run ./cmd/envguardian`;
-> swap in `envguardian` if you installed it. Pre-built binaries for every OS are on the
-> [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.1).
+> swap in `envguardian` if you installed it. Git hooks and drivers need an installed binary.
+> Pre-built binaries for every OS are on the [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.1).
+> Releases after `v0.2.1` include an SBOM and a build-provenance attestation per archive;
+> see [Verifying a downloaded release](docs/RELEASING.md#verifying-a-downloaded-release).
 
 **Repo owner — first-time setup:**
 
@@ -130,7 +132,8 @@ diffs and cause needless merge conflicts).
 ## Implementation status
 
 The CLI contains `init`, `encrypt`, `decrypt`, `add-recipient`, `revoke`, `rotation`,
-`list-recipients`, `check`, `check-local`, `install-hooks`, `diff`, and `merge`. **Their
+`list-recipients`, `add-file`, `remove-file`, `check`, `check-local`, `doctor`,
+`install-hooks`, `diff`, `merge`, and `completion`. **Their
 presence does not mean they are ready to protect real secrets** — the project is still in
 release hardening.
 
@@ -156,12 +159,15 @@ release hardening.
 - Every new or replaced ciphertext gets a sibling `.sig` made through `ssh-keygen -Y sign`.
   The signature binds the ciphertext digest, recipient fingerprint, config path, and
   complete file mapping. Verification accepts only a current SSH recipient. Sealing
-  therefore requires an SSH private-key file; age-only identities can still decrypt.
+  therefore requires a recipient's SSH key: a private-key file, or (unreleased, on `main`)
+  an agent-held key selected with `--signing-key`. age-only identities can still decrypt.
 - `check` verifies committed repository integrity: config and paths, recipients, lock
   digest/fingerprint, ciphertext signature, ciphertext decryption and dotenv validity,
   gitignore state, and the rotation ledger. It requires an identity; `--structural-only` is
   the explicit fork-PR mode when CI secrets are absent. It deliberately does not compare
-  uncommitted local plaintext because CI cannot observe a developer's `.env`.
+  uncommitted local plaintext because CI cannot observe a developer's `.env`. On pull
+  requests, `--base REF` additionally requires every ciphertext changed since `REF` to be
+  signed by a recipient already trusted at `REF`.
 - `check-local` compares the developer's plaintext with decryptable ciphertext and fails on
   a missing plaintext unless `--allow-missing` is explicit.
 - Automatic hooks and plain `decrypt` inside a Git repository share one gate: they compare
@@ -195,8 +201,8 @@ release hardening.
 
 </details>
 
-The authoritative status and sequencing live in [docs/PLAN.md](docs/PLAN.md). The old
-M0/M1/M2/M3 plan is historical.
+Release status is tracked in [SECURITY.md](SECURITY.md#supported-versions) and changes in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Threat model
 
@@ -234,7 +240,8 @@ EnvGuardian does **not** protect against:
   changes `recipients.toml` proves nothing about who authored the new ciphertext. Human
   review of `.envguardian/recipients.toml` (routed by CODEOWNERS) is the boundary.
   Reviewers should reject pull requests that change recipients and ciphertext together
-  unless both changes are confirmed out of band.
+  unless both changes are confirmed out of band. Running `check --base` with the pull
+  request's base commit (unreleased, on `main`) fails this pattern automatically.
 - **Plain `decrypt` in `v0.2.0` and `v0.2.1`.** It skipped the accepted-commit check, so it
   installed an unreviewed branch's ciphertext that the hook had refused; see the advisory in
   [SECURITY.md](SECURITY.md).
@@ -264,8 +271,7 @@ Node, and Docker columns are documented reference notes, not CI-verified claims.
 
 - **[User Guide](docs/USER_GUIDE.md)** — command reference, daily workflows, git hooks,
   diff/merge drivers, and troubleshooting.
-- **[Remediation & Architecture Plan](docs/PLAN.md)** — authoritative status, stage map, and
-  release verification gates.
+- **[Changelog](CHANGELOG.md)** — released and unreleased changes, including security fixes.
 - **[Threat Model](docs/threat-model.md)** — security boundaries, automatic-decryption trust
   model, and detached-signature provenance.
 

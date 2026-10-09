@@ -16,12 +16,12 @@ func profile(t *testing.T, body string) string {
 }
 
 func TestReadProfileAndValidate(t *testing.T) {
-	path := profile(t, "mode: atomic\nexample/internal/crypt/a.go:1.1,1.2 85 1\nexample/internal/crypt/a.go:2.1,2.2 15 0\nexample/internal/config/a.go:1.1,1.2 100 1\nexample/internal/keys/a.go:1.1,1.2 100 1\nexample/internal/dotenv/a.go:1.1,1.2 100 1\n")
+	path := profile(t, "mode: atomic\nexample/internal/crypt/a.go:1.1,1.2 85 1\nexample/internal/crypt/a.go:2.1,2.2 15 0\nexample/internal/config/a.go:1.1,1.2 100 1\nexample/internal/keys/a.go:1.1,1.2 100 1\nexample/internal/dotenv/a.go:1.1,1.2 100 1\nexample/internal/authenticity/a.go:1.1,1.2 100 1\n")
 	overall, packages, err := readProfile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if packages["crypt"].percent() != 85 || overall.percent() != 96.25 {
+	if packages["crypt"].percent() != 85 || overall.percent() != 97 {
 		t.Fatalf("unexpected parsed percentages: crypt=%v overall=%v", packages["crypt"].percent(), overall.percent())
 	}
 	if err := validate(overall, packages); err != nil {

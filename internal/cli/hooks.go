@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -35,7 +36,7 @@ func newInstallHooksCmd(flags *globalFlags) *cobra.Command {
 		Short: "Install git hooks: auto-decrypt after pull, block plaintext commits",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInstallHooks(cmd, flags, uninstall)
+			return exclusive(flags, func() error { return runInstallHooks(cmd, flags, uninstall) })
 		},
 	}
 	cmd.Flags().BoolVar(&uninstall, "uninstall", false, "remove EnvGuardian's hook blocks")
@@ -56,7 +57,6 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 		return fmt.Errorf("create hooks dir %s: %w", display(dir), err)
 	}
 
-	exe := selfPath()
 	configPath := ""
 	if flags.config != "" {
 		configPath = filepath.ToSlash(p.Config)
@@ -75,6 +75,10 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 		}
 		return nil
 	}
+	exe, err := installableSelfPath()
+	if err != nil {
+		return err
+	}
 	if _, err := gitint.AppendIgnore(root, config.AutoDecryptStateRelative); err != nil {
 		return fmt.Errorf("gitignore automatic-decryption state: %w", err)
 	}
@@ -90,24 +94,39 @@ func runInstallHooks(cmd *cobra.Command, flags *globalFlags, uninstall bool) err
 	return nil
 }
 
-// hookBody returns the shell lines (between markers) for a hook. Portable
-// /bin/sh, no bashisms.
+// hookResolveBinary checks the binary recorded at install time. A moved or
+// upgraded binary falls back to envguardian on PATH with a reinstall hint;
+// with neither available the block fails, which blocks a commit (fail closed).
+const hookResolveBinary = `if [ ! -x "$envguardian_bin" ]; then
+  if command -v envguardian >/dev/null 2>&1; then
+    echo "envguardian: recorded binary $envguardian_bin is missing; using envguardian from PATH. Run 'envguardian install-hooks' to update this hook." >&2
+    envguardian_bin=envguardian
+  else
+    echo "envguardian: recorded binary $envguardian_bin is missing and envguardian is not on PATH. Reinstall it, then run 'envguardian install-hooks'." >&2
+    exit 1
+  fi
+fi
+`
 
+// hookBody returns the shell lines (between markers) for a hook. Portable
+// /bin/sh, no bashisms. The block runs in a subshell so its exits never skip
+// non-managed hook content, and every recorded path is one literal shell word.
 func hookBody(name, exe, configPath string) string {
 	invoke := func(subcommand string) string {
 		if configPath != "" {
-			return fmt.Sprintf("%q --config %q %s", exe, configPath, subcommand)
+			return fmt.Sprintf("\"$envguardian_bin\" --config %s %s", shellQuote(configPath), subcommand)
 		}
-		return fmt.Sprintf("%q %s", exe, subcommand)
+		return fmt.Sprintf("\"$envguardian_bin\" %s", subcommand)
 	}
+	resolve := "envguardian_bin=" + shellQuote(exe) + "\n" + hookResolveBinary
 	switch name {
 	case "post-checkout":
 		// Only decrypt on a full branch checkout ($3 == 1), not file checkouts.
-		return "[ \"$3\" = \"1\" ] || exit 0\n" + invoke("hook-auto-decrypt")
+		return "(\n[ \"$3\" = \"1\" ] || exit 0\n" + resolve + invoke("hook-auto-decrypt") + "\n)"
 	case "post-merge":
-		return invoke("hook-auto-decrypt")
+		return "(\n" + resolve + invoke("hook-auto-decrypt") + "\n)"
 	case "pre-commit":
-		return invoke("hook-pre-commit") + " || exit 1"
+		return "(\n" + resolve + invoke("hook-pre-commit") + "\n) || exit 1"
 	default:
 		return ""
 	}
@@ -281,6 +300,27 @@ func selfPath() string {
 		return "envguardian"
 	}
 	return filepath.ToSlash(exe)
+}
+
+// installableSelfPath returns the binary path that hooks and Git drivers
+// record. It refuses a `go run` build, which Go deletes when the command exits.
+func installableSelfPath() (string, error) {
+	exe := selfPath()
+	if isGoRunBinary(exe) {
+		return "", errors.New("refusing to record a temporary `go run` binary that Go deletes when the command exits; " +
+			"install envguardian (go install github.com/YehiaGewily/envguardian/cmd/envguardian@latest) and rerun this command with the installed binary")
+	}
+	return exe, nil
+}
+
+// isGoRunBinary reports whether exe has the layout `go run` uses for its
+// temporary build: <tmp>/go-build<N>/b<N>/exe/<name>.
+func isGoRunBinary(exe string) bool {
+	dir := path.Dir(filepath.ToSlash(exe))
+	if path.Base(dir) != "exe" {
+		return false
+	}
+	return strings.HasPrefix(path.Base(path.Dir(path.Dir(dir))), "go-build")
 }
 
 // newHookPreCommitCmd is the hidden command the pre-commit hook invokes.

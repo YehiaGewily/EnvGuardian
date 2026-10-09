@@ -19,7 +19,7 @@ func newInitCmd(flags *globalFlags) *cobra.Command {
 		Short: "Scaffold config, seed recipients with your key, and update .gitignore",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runInit(cmd, flags, name, plaintext)
+			return exclusive(flags, func() error { return runInit(cmd, flags, name, plaintext) })
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "your recipient name (default: OS username)")

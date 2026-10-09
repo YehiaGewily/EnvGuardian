@@ -36,10 +36,11 @@ type BuildInfo struct {
 
 // globalFlags holds the persistent flags shared by every subcommand.
 type globalFlags struct {
-	identity string
-	config   string
-	json     bool
-	verbose  bool
+	identity   string
+	signingKey string
+	config     string
+	json       bool
+	verbose    bool
 }
 
 // exitError attaches a specific exit code to an error.
@@ -71,10 +72,10 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			jsonCommand := cmd.Name() == "check" || cmd.Name() == "list-recipients" ||
+			jsonCommand := cmd.Name() == "check" || cmd.Name() == "doctor" || cmd.Name() == "list-recipients" ||
 				cmd.CommandPath() == "envguardian rotation status" || cmd.CommandPath() == "envguardian rotation done"
 			if flags.json && !jsonCommand {
-				return withExit(exitConfig, fmt.Errorf("--json is not supported by %q; use it only with check or list-recipients (and rotation status or rotation done)", cmd.CommandPath()))
+				return withExit(exitConfig, fmt.Errorf("--json is not supported by %q; use it only with check, doctor, or list-recipients (and rotation status or rotation done)", cmd.CommandPath()))
 			}
 			if flags.verbose {
 				fmt.Fprintf(cmd.ErrOrStderr(), "envguardian: verbose: command=%s\n", cmd.Name())
@@ -85,6 +86,7 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 
 	pf := root.PersistentFlags()
 	pf.StringVar(&flags.identity, "identity", "", "path to the age/SSH identity to decrypt with")
+	pf.StringVar(&flags.signingKey, "signing-key", "", "SSH public key whose agent-held private key signs new ciphertext")
 	pf.StringVar(&flags.config, "config", "", "path to the EnvGuardian config file")
 	pf.BoolVar(&flags.json, "json", false, "emit machine-readable JSON output")
 	pf.BoolVarP(&flags.verbose, "verbose", "v", false, "report command progress without secret values")
@@ -100,6 +102,9 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 		newRotationCmd(flags),
 		newCheckCmd(flags),
 		newCheckLocalCmd(flags),
+		newDoctorCmd(flags),
+		newAddFileCmd(flags),
+		newRemoveFileCmd(flags),
 		newInstallHooksCmd(flags),
 		newHookAutoDecryptCmd(flags),
 		newHookPreCommitCmd(flags),

@@ -36,7 +36,7 @@ func finalCiphertext(plan *crypt.SealPlan) []byte {
 // planCiphertextSignature preserves an already-valid current-recipient
 // signature. Missing, stale, or invalid signatures are replaced before the
 // transaction begins; no managed file is written here.
-func planCiphertextSignature(p config.Paths, fp config.FilePair, fingerprint string, rf *keys.RecipientsFile, identity *keys.Identity, seal *crypt.SealPlan) (*crypt.FilePlan, error) {
+func planCiphertextSignature(p config.Paths, fp config.FilePair, fingerprint string, rf *keys.RecipientsFile, signer authenticity.Signer, seal *crypt.SealPlan) (*crypt.FilePlan, error) {
 	binding, err := signatureBinding(p, fp, fingerprint)
 	if err != nil {
 		return nil, err
@@ -50,11 +50,29 @@ func planCiphertextSignature(p config.Paths, fp config.FilePair, fingerprint str
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return nil, fmt.Errorf("read ciphertext signature %s: %w", authenticity.SignatureName(fp.Ciphertext), readErr)
 	}
-	signature, _, err := authenticity.Sign(identity, rf, binding, ciphertext)
+	signature, _, err := authenticity.Sign(signer, rf, binding, ciphertext)
 	if err != nil {
 		return nil, err
 	}
 	return crypt.PlanFile(fp.SignaturePath, signature, 0o644)
+}
+
+// resolveSigner selects the key that signs new ciphertext: an explicit
+// --signing-key or $ENVGUARDIAN_SIGNING_KEY public key, signed through
+// ssh-agent, otherwise the SSH private-key file resolved as the identity.
+func resolveSigner(flags *globalFlags, identity *keys.Identity) (authenticity.Signer, error) {
+	path := flags.signingKey
+	if path == "" {
+		path = os.Getenv("ENVGUARDIAN_SIGNING_KEY")
+	}
+	if path == "" {
+		return authenticity.SignerFromIdentity(identity), nil
+	}
+	signer, err := authenticity.SignerFromPublicKeyFile(path)
+	if err != nil {
+		return authenticity.Signer{}, withExit(exitConfig, err)
+	}
+	return signer, nil
 }
 
 func verifyCiphertextSignature(p config.Paths, fp config.FilePair, rf *keys.RecipientsFile, ciphertext []byte) (signer string, missing bool, err error) {

@@ -1,5 +1,5 @@
 # Security-sensitive repository state and implementation.
-# Keep these rules in sync with docs/PLAN.md.
+# Keep these rules in sync with the paths docs/threat-model.md calls sensitive.
 /.github/CODEOWNERS @YehiaGewily
 /.envguardian/** @YehiaGewily
 *.age @YehiaGewily

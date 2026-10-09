@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/YehiaGewily/envguardian/internal/config"
 	"github.com/YehiaGewily/envguardian/internal/crypt"
 	"github.com/YehiaGewily/envguardian/internal/gitint"
 	"github.com/YehiaGewily/envguardian/internal/keys"
@@ -18,7 +19,7 @@ func newEncryptCmd(flags *globalFlags) *cobra.Command {
 		Short: "Encrypt every plaintext file to the current recipients (idempotent)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runEncrypt(cmd, flags, force, fix)
+			return exclusive(flags, func() error { return runEncrypt(cmd, flags, force, fix) })
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "re-encrypt even when the existing ciphertext can't be verified")
@@ -35,7 +36,13 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 	if err != nil {
 		return err
 	}
+	return sealConfiguration(cmd, flags, p, cfg, force, fix, nil)
+}
 
+// sealConfiguration seals every mapping in cfg and commits ciphertexts,
+// signatures, any additional metadata plans (such as an edited config), and
+// the lock as one rollback-capable transaction.
+func sealConfiguration(cmd *cobra.Command, flags *globalFlags, p config.Paths, cfg *config.Config, force, fix bool, additional []*crypt.FilePlan) error {
 	// Refuse to encrypt a plaintext file git isn't ignoring — committing it
 	// would leak the secret into history.
 	plaintexts := make([]string, len(cfg.Files))
@@ -59,7 +66,7 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		return withExit(exitConfig, err)
 	}
 
-	// Stage D requires an SSH identity for every new or replacement signature.
+	// Every new or replacement signature requires a recipient SSH key.
 	// Existing ciphertext also uses its age-compatible form for decrypt-compare.
 	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
 	if err != nil {
@@ -85,15 +92,19 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		plans = append(plans, plan)
 	}
 	signaturePlans := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	signer, err := resolveSigner(flags, id)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}
 		signaturePlans = append(signaturePlans, signaturePlan)
 	}
 	if err := crypt.CommitSealPlans(plans, crypt.CommitOptions{
-		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: signaturePlans,
+		LockPath: p.Lock, RecipientsFingerprint: rf.Fingerprint(), Additional: append(signaturePlans, additional...),
 	}); err != nil {
 		return err
 	}

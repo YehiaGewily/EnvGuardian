@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,15 +76,56 @@ func canonicalPath(value string) string {
 	return path.Clean(strings.ReplaceAll(value, `\`, "/"))
 }
 
-// Sign signs the canonical payload with a current SSH recipient's private key.
-// ssh-keygen writes only inside a fresh temporary directory; the caller places
-// the returned detached signature through its managed atomic transaction.
-func Sign(identity *keys.Identity, recipients *keys.RecipientsFile, binding Binding, ciphertext []byte) ([]byte, string, error) {
-	if identity == nil || identity.SSHKeyPath == "" {
-		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "sealing requires an SSH private-key file; select one with --identity"}
+// Signer selects the SSH key that ssh-keygen signs with.
+type Signer struct {
+	// KeyPath is an SSH private-key file, or an SSH public-key file whose
+	// private half is held by ssh-agent.
+	KeyPath string
+	// PublicKey is the signing key's authorized_keys line, used to require that
+	// the signer is a current recipient.
+	PublicKey string
+}
+
+// SignerFromIdentity signs with the SSH private-key file that was resolved as
+// the decryption identity. Age identities and raw key material yield a Signer
+// that Sign rejects with guidance.
+func SignerFromIdentity(identity *keys.Identity) Signer {
+	if identity == nil {
+		return Signer{}
 	}
-	signer, ok := recipients.RecipientNameForPublicKey(identity.Recipient)
-	if !ok || !strings.HasPrefix(strings.TrimSpace(identity.Recipient), "ssh-") {
+	return Signer{KeyPath: identity.SSHKeyPath, PublicKey: identity.Recipient}
+}
+
+// SignerFromPublicKeyFile signs with an agent-held key named by its public key
+// file. It parses only the public key line and never reads private material.
+func SignerFromPublicKeyFile(path string) (Signer, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // user-selected public key file
+	if err != nil {
+		return Signer{}, fmt.Errorf("read signing public key: %w", err)
+	}
+	line := strings.TrimSpace(string(data))
+	if first, _, found := strings.Cut(line, "\n"); found {
+		line = strings.TrimSpace(first)
+	}
+	if !strings.HasPrefix(line, "ssh-") {
+		return Signer{}, errors.New("signing key must be an SSH public key file (for example ~/.ssh/id_ed25519.pub)")
+	}
+	if _, err := keys.ParseRecipient(line); err != nil {
+		return Signer{}, errors.New("signing key is not a supported SSH public key (ssh-ed25519 or ssh-rsa)")
+	}
+	return Signer{KeyPath: path, PublicKey: line}, nil
+}
+
+// Sign signs the canonical payload with a current SSH recipient's key, either
+// from a private-key file or through ssh-agent. ssh-keygen writes only inside a
+// fresh temporary directory; the caller places the returned detached signature
+// through its managed atomic transaction.
+func Sign(signer Signer, recipients *keys.RecipientsFile, binding Binding, ciphertext []byte) ([]byte, string, error) {
+	if signer.KeyPath == "" || !strings.HasPrefix(strings.TrimSpace(signer.PublicKey), "ssh-") {
+		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "sealing requires an SSH key; select a private-key file with --identity or an agent-held public key with --signing-key"}
+	}
+	name, ok := recipients.RecipientNameForPublicKey(signer.PublicKey)
+	if !ok {
 		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "the signing SSH key is not a current recipient"}
 	}
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
@@ -99,15 +141,15 @@ func Sign(identity *keys.Identity, recipients *keys.RecipientsFile, binding Bind
 	if err := atomic.WriteFile(payloadPath, Payload(binding, ciphertext), 0o600); err != nil {
 		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "prepare public signing payload", Err: err}
 	}
-	cmd := exec.Command("ssh-keygen", "-Y", "sign", "-f", identity.SSHKeyPath, "-n", namespace, payloadPath) // #nosec G204 -- fixed binary; arguments are separate
+	cmd := exec.Command("ssh-keygen", "-Y", "sign", "-f", signer.KeyPath, "-n", namespace, payloadPath) // #nosec G204 -- fixed binary; arguments are separate
 	if _, err := cmd.CombinedOutput(); err != nil {
-		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "ssh-keygen could not sign with the selected key", Err: err}
+		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "ssh-keygen could not sign with the selected key (for an agent-held key, check that the agent is running and holds it)", Err: err}
 	}
 	signature, err := os.ReadFile(payloadPath + ".sig") //nolint:gosec // fresh tool-owned temporary path
 	if err != nil {
 		return nil, "", &SignatureError{CiphertextPath: binding.CiphertextPath, Reason: "read detached signature produced by ssh-keygen", Err: err}
 	}
-	return signature, signer, nil
+	return signature, name, nil
 }
 
 // Verify accepts a signature only when ssh-keygen validates it for one of the

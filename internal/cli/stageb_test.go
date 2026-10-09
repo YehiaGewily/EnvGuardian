@@ -142,7 +142,7 @@ func TestAddRecipientUndecryptableAndInvalidIdentityModifyNothing(t *testing.T) 
 
 func TestGlobalJSONContractAndVerboseOutput(t *testing.T) {
 	_, stderr, code := runCLI(t, "version", "--json")
-	if code != exitConfig || !strings.Contains(stderr, "only with check or list-recipients") {
+	if code != exitConfig || !strings.Contains(stderr, "only with check, doctor, or list-recipients") {
 		t.Fatalf("unsupported --json exit=%d stderr=%s", code, stderr)
 	}
 	_, stderr, code = runCLI(t, "version", "--verbose")
@@ -266,7 +266,7 @@ func TestCustomConfigUsesIndependentLock(t *testing.T) {
 
 func TestHookBodyPreservesExplicitConfig(t *testing.T) {
 	body := hookBody("post-merge", "envguardian", "C:/repo/.envguardian/staging.toml")
-	if !strings.Contains(body, `--config "C:/repo/.envguardian/staging.toml" hook-auto-decrypt`) {
+	if !strings.Contains(body, `--config 'C:/repo/.envguardian/staging.toml' hook-auto-decrypt`) {
 		t.Fatalf("custom-config hook body = %q", body)
 	}
 }

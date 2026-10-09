@@ -29,7 +29,7 @@ func newDecryptCmd(flags *globalFlags) *cobra.Command {
 			"it decrypts the files on disk.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDecrypt(cmd, flags, acceptChanges)
+			return exclusive(flags, func() error { return runDecrypt(cmd, flags, acceptChanges) })
 		},
 	}
 	cmd.Flags().BoolVar(&acceptChanges, "accept-changes", false, "accept the current commit's managed inputs and update automatic-decryption trust state")

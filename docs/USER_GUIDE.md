@@ -168,6 +168,44 @@ exactly what `.env` already holds.
 prints `unchanged` and rewrites nothing (age is randomized, so re-encrypting blindly would
 churn diffs and cause needless merge conflicts — EnvGuardian deliberately avoids that).
 
+### D. Managing more than one file
+
+```bash
+# Start managing another repository-relative plaintext (ciphertext: config/dev.env.age)
+envguardian add-file config/dev.env
+# Stop managing it; the ciphertext and signature are left for you to `git rm`
+envguardian remove-file config/dev.env
+```
+
+`add-file` adds the plaintext to `.gitignore`, then writes the config change, the new
+ciphertext and signature, and the lock as one transaction: if sealing fails, `config.toml`
+is unchanged. `--ciphertext PATH` picks a different `.age` path. `remove-file` refuses to
+remove the last mapping. Commit `.envguardian/` together with the added or removed
+ciphertext and signature.
+
+### E. Diagnosing your setup
+
+```bash
+envguardian doctor
+envguardian doctor --json
+```
+
+`doctor` never decrypts and never prints values. It reports config and recipient validity,
+whether `ssh-keygen` is installed, whether each plaintext is gitignored, whether Git leaves
+ciphertext and signature line endings alone (`-text`), whether hooks and diff/merge drivers
+are installed and the binary they recorded still exists, and whether `HEAD` still matches
+your accepted commit. It exits non-zero only for problems (`FAIL`); optional pieces that are
+not installed show as `SKIP`, and things to act on show as `WARN`.
+
+### F. Shell completion
+
+```bash
+envguardian completion bash > /usr/local/etc/bash_completion.d/envguardian   # or zsh, fish, powershell
+```
+
+Release archives include ready-made scripts in `completions/`, and the Homebrew cask installs
+them for bash, zsh, and fish.
+
 ---
 
 ## 4. Global flags
@@ -177,13 +215,34 @@ These persistent flags work on (almost) every command:
 | Flag | Meaning |
 |---|---|
 | `--identity <path>` | Path to the age/SSH identity to decrypt/sign with. Defaults to your usual SSH key; `ENVGUARDIAN_IDENTITY` env var is also honored. |
+| `--signing-key <path>` | SSH **public** key file whose private half is held by `ssh-agent` (1Password, Secretive, a hardware token). New ciphertext is signed through the agent instead of with the `--identity` key file. `ENVGUARDIAN_SIGNING_KEY` is also honored. |
 | `--config <path>` | Path to the EnvGuardian config file (for non-standard layouts). |
-| `--json` | Machine-readable JSON output. **Only valid** on `check`, `list-recipients`, `rotation status`, and `rotation done` — it errors elsewhere. |
+| `--json` | Machine-readable JSON output. **Only valid** on `check`, `doctor`, `list-recipients`, `rotation status`, and `rotation done` — it errors elsewhere. |
 | `-v`, `--verbose` | Report progress on stderr. Never prints secret values. |
 
 > There is **no `-i` shorthand** for `--identity`. `-v` is the only short flag.
 
 Commands auto-discover the repository root, so they work from any subdirectory.
+
+**Keys that live only in an agent.** Sealing signs every ciphertext with an SSH key that
+belongs to a current recipient. If that key lives only in an agent, decrypt with a separate
+identity (age cannot decrypt through an agent) and sign with `--signing-key`. List both
+public keys for yourself in `recipients.toml`:
+
+```toml
+[[recipient]]
+name = "alice"
+keys = ["age1...", "ssh-ed25519 AAAA... alice@laptop"]
+```
+
+```bash
+export ENVGUARDIAN_IDENTITY=~/.config/envguardian/identity.txt   # age key: decrypts
+export ENVGUARDIAN_SIGNING_KEY=~/.ssh/id_ed25519.pub             # agent key: signs
+envguardian encrypt
+```
+
+If the agent is not running or does not hold the key, sealing fails before any file is
+written. See [ADR 0009](adr/0009-ssh-agent-signing.md).
 
 ---
 
@@ -315,9 +374,69 @@ fingerprint match, a valid signature per ciphertext, `.env` is gitignored, ciphe
 decrypts to valid dotenv, and the rotation ledger is readable. `--structural-only` skips
 only the decryption step and says so explicitly.
 
-`check` verifies a snapshot against its own `recipients.toml`, so it cannot detect a pull
-request that adds its author as a recipient and re-seals the ciphertext. See
-[Reviewing recipient changes](#reviewing-recipient-changes).
+On its own, `check` verifies a snapshot against that snapshot's `recipients.toml`, so it
+cannot detect a pull request that adds its author as a recipient and re-seals the
+ciphertext. On pull requests, also pass the target branch's commit with `--base`:
+
+```bash
+envguardian check --structural-only --base "$BASE_SHA"
+```
+
+With `--base`, every ciphertext that changed since the base must carry a signature from a
+recipient who was already trusted at the base, and any recipient change is reported by
+name as a warning. A self-added recipient, or a recipient whose key was swapped on the
+branch, fails with exit `4`. If the base cannot be resolved or read, or has no
+EnvGuardian configuration yet (the first adoption pull request), the check fails rather
+than skipping the comparison. In GitHub Actions:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # the base commit must be present
+- run: envguardian check --structural-only --base "${{ github.event.pull_request.base.sha }}"
+```
+
+`--base` proves who sealed a change, not that a legitimate recipient's change is
+benign, and a recipient can still add a teammate with `add-recipient`. Keep code-owner
+review of `recipients.toml`; see [Reviewing recipient changes](#reviewing-recipient-changes).
+
+### Full `check` in CI: a dedicated CI recipient
+
+`--structural-only --base` needs no secret and is the right default for pull requests,
+including ones from forks. Proving that the committed ciphertext also *decrypts* needs an
+identity, so CI must itself be a recipient. Give it its own key; never reuse a person's.
+
+```bash
+# 1. Make a CI-only key (no passphrase) on a trusted machine
+ssh-keygen -t ed25519 -N "" -C envguardian-ci -f ./envguardian-ci
+# 2. Add it as a recipient through a reviewed pull request
+envguardian add-recipient --name ci --ssh ./envguardian-ci.pub
+# 3. Store the PRIVATE key as a secret, then delete the local copy
+gh secret set ENVGUARDIAN_CI_IDENTITY --env protected-main < ./envguardian-ci
+rm ./envguardian-ci ./envguardian-ci.pub
+```
+
+```yaml
+# Full check only on pushes to the protected branch, never on pull requests
+on:
+  push:
+    branches: [main]
+jobs:
+  envguardian:
+    runs-on: ubuntu-latest
+    environment: protected-main      # secret is scoped to this environment
+    steps:
+      - uses: actions/checkout@v4
+      - run: envguardian check
+        env:
+          ENVGUARDIAN_IDENTITY: ${{ secrets.ENVGUARDIAN_CI_IDENTITY }}
+```
+
+`ENVGUARDIAN_IDENTITY` accepts raw key material as well as a path. Treat the CI key like
+any recipient: every workflow that can read the secret can read every value, so keep it in
+an environment restricted to your protected branch, do not expose it to `pull_request`
+workflows, and `revoke ci` (then rotate) if it may have leaked. EnvGuardian never prints
+values, but other steps in the same job could.
 
 ### `check-local` — developer synchronization
 
@@ -379,6 +498,11 @@ Installs three hooks (in managed, clearly-delimited blocks so they coexist with 
   way around the alert. Git ignores a post-merge hook's exit status, so a blocked pull still
   completes; read the alert.
 
+Hooks record the absolute path of the binary that installed them. If that binary later
+moves (an upgrade, a reinstall elsewhere), the hooks fall back to `envguardian` on your
+`PATH` and print a hint to rerun `envguardian install-hooks`. If no binary can be found,
+`pre-commit` blocks the commit rather than skipping its checks.
+
 ### Secret-safe diff
 
 ```bash
@@ -410,6 +534,11 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 
 > Merge/diff drivers are registered **locally**, from your own binary path — EnvGuardian
 > never executes a command string supplied by the repository.
+>
+> `install-hooks`, `diff --install`, and `merge --install` refuse to run from
+> `go run`, whose temporary binary is deleted when the command exits. Install the binary
+> first (`go install`, Homebrew, or a release archive). If you move or upgrade the binary,
+> rerun `diff --install` and `merge --install` to update the recorded path.
 
 ---
 
@@ -425,8 +554,12 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 | `envguardian list-recipients` | List who can decrypt. | `--json` |
 | `envguardian rotation status` | List pending rotation key names. | `--json` |
 | `envguardian rotation done KEY` | Mark one rotated key name complete. | `--json` |
-| `envguardian check` | Verify committed repository integrity (CI). | `--structural-only`, `--json` |
+| `envguardian check` | Verify committed repository integrity (CI). | `--structural-only`, `--base REF`, `--json` |
 | `envguardian check-local` | Verify local plaintext matches ciphertext. | `--allow-missing` |
+| `envguardian add-file PLAINTEXT` | Manage another plaintext file and seal it in one transaction. | `--ciphertext` |
+| `envguardian remove-file PLAINTEXT` | Stop managing a file; leaves its ciphertext for you to `git rm`. | — |
+| `envguardian doctor` | Diagnose setup (hooks, drivers, attributes, trust state) without decrypting. | `--json` |
+| `envguardian completion SHELL` | Print a bash, zsh, fish, or PowerShell completion script. | — |
 | `envguardian install-hooks` | Install git hooks (auto-decrypt alert + block plaintext commits). | `--uninstall` |
 | `envguardian diff` | Show changed key names; `--install` registers the git diff driver. | `--install` |
 | `envguardian merge` | Install (`--install`) or finish (`--continue`) the ciphertext merge driver. | `--install`, `--continue` |
@@ -459,7 +592,8 @@ ones, so a non-zero exit tells you *what kind* of thing went wrong.
 
 | Symptom | Likely cause & fix |
 |---|---|
-| `--json is not supported by "…"` (exit 3) | `--json` only works on `check`, `list-recipients`, `rotation status`, `rotation done`. |
+| Something is off and you are not sure what | Run `envguardian doctor`; every `FAIL` line names the fix. |
+| `--json is not supported by "…"` (exit 3) | `--json` only works on `check`, `doctor`, `list-recipients`, `rotation status`, `rotation done`. |
 | `decrypt` / `check` fails with exit **2** | No usable identity, or you're not a recipient. Pass `--identity <path>`, or ask to be added. |
 | Post-merge/checkout says managed inputs changed | Review the change, then `envguardian decrypt --accept-changes`. |
 | `decryption blocked for commit …` (exit 1) | `HEAD`'s managed files differ from your accepted commit, or none is recorded (fresh clone). Review the listed key and recipient names and the commits that changed them (`git log -p -- .envguardian/`), then `envguardian decrypt --accept-changes`. |
@@ -470,6 +604,7 @@ ones, so a non-zero exit tells you *what kind* of thing went wrong.
 | `refusing to revoke the last recipient` | Add a replacement recipient before revoking. |
 | `--github` fails: user has N keys | GitHub import currently needs exactly one `ssh-ed25519` key; use `--key`/`--ssh` instead. |
 | Merge "intentionally paused" (exit 1) | Expected. Run `envguardian merge --continue` to finalize, sign, and stage. |
+| `another envguardian command is running in this repository` (exit 1) | Commands that write files take an exclusive lock (`.git/envguardian.lock`) so they cannot interleave, for example an IDE checkout firing the post-checkout hook while you run `encrypt`. Wait for the other command and retry. The operating system releases the lock when a process exits, so a crash never leaves a stale lock; the empty lock file can stay. |
 
 ---
 
@@ -485,5 +620,5 @@ By design, to stay finishable and trustworthy:
 
 ---
 
-*Authoritative status lives in [`docs/PLAN.md`](PLAN.md); security details in
+*Release status and security details are in
 [`SECURITY.md`](../SECURITY.md) and [`docs/threat-model.md`](threat-model.md).*

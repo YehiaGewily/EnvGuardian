@@ -33,10 +33,12 @@ func newMergeCmd(flags *globalFlags) *cobra.Command {
 			if install == continueMerge {
 				return withExit(exitConfig, errors.New("specify exactly one of --install or --continue"))
 			}
-			if install {
-				return installMergeDriver(cmd, flags)
-			}
-			return continueCiphertextMerge(cmd, flags)
+			return exclusive(flags, func() error {
+				if install {
+					return installMergeDriver(cmd, flags)
+				}
+				return continueCiphertextMerge(cmd, flags)
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&install, "install", false, "register the merge drivers in local Git config and .gitattributes")
@@ -73,6 +75,10 @@ func installMergeDriver(cmd *cobra.Command, flags *globalFlags) error {
 		return err
 	}
 	root := gitRoot(p.Root)
+	exe, err := installableSelfPath()
+	if err != nil {
+		return err
+	}
 	lines := []string{
 		"*.age -text merge=envguardian",
 		"*.age.sig -text merge=envguardian-generated",
@@ -83,7 +89,7 @@ func installMergeDriver(cmd *cobra.Command, flags *globalFlags) error {
 			return err
 		}
 	}
-	binary := shellQuote(selfPath())
+	binary := shellQuote(exe)
 	if err := gitRun(root, "config", "--local", "merge.envguardian.driver", binary+" merge-driver %O %A %B %P"); err != nil {
 		return err
 	}
@@ -209,8 +215,12 @@ func continueCiphertextMerge(cmd *cobra.Command, flags *globalFlags) error {
 		plans = append(plans, plan)
 	}
 	additional := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	signer, err := resolveSigner(flags, id)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}

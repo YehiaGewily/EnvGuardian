@@ -7,8 +7,8 @@ unreleased development snapshot and must not be used for real secrets.
 
 | Version | Supported |
 |---|---|
-| `v0.2.1` release candidate | No — pending Stage G verification |
-| `v0.2.0` release candidate | No — pending Stage G verification |
+| `v0.2.1` release candidate | No — pending release verification |
+| `v0.2.0` release candidate | No — pending release verification |
 | `main` | No — development only |
 | `v0.1.0` | No — known unsafe development tag |
 
@@ -33,8 +33,7 @@ Until a fixed version is released:
 - do not run commands from the `v0.1.0` binary in an untrusted repository.
 
 This advisory is intentionally public because there is no supported release to
-protect and users need an unambiguous warning. The tracked remediation is in
-[docs/PLAN.md](docs/PLAN.md).
+protect and users need an unambiguous warning.
 
 ## Known advisory: plain `decrypt` skipped the accepted-commit check
 
@@ -82,7 +81,7 @@ backup all produce a file with the directory's inherited ACL.
 
 age encrypts to recipients, but it does not authenticate the sender. Successful
 decryption proves neither who created a ciphertext nor that it came from a
-trusted commit. Development code after Stage D separately verifies a detached
+trusted commit. EnvGuardian separately verifies a detached
 OpenSSH signature over the ciphertext and mapping against current SSH
 recipients. The v0.1.x migration warning is retired in v0.2: missing signatures
 fail closed. See [docs/threat-model.md](docs/threat-model.md).
@@ -103,7 +102,11 @@ authorized, and a green `check` on a pull request that changes
 `recipients.toml` proves nothing about who authored the new ciphertext. The
 security boundary is code-owner review of `.envguardian/recipients.toml`.
 Reviewers should reject pull requests that change recipients and ciphertext
-together unless both changes are confirmed out of band. See
+together unless both changes are confirmed out of band.
+
+`check --base REF` (unreleased, on `main`) requires every ciphertext changed
+since `REF` to be signed by a recipient already trusted at `REF`. Run it in CI
+with the pull request's base commit to fail this pattern automatically. See
 [docs/threat-model.md](docs/threat-model.md).
 
 ### Accepted-commit trust state

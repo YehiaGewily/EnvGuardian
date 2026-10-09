@@ -208,3 +208,25 @@ func TestLoadRejectsMalformedExistingConfig(t *testing.T) {
 		t.Fatalf("Load malformed config error = %v", err)
 	}
 }
+
+func TestEncodeRoundTripsThroughParse(t *testing.T) {
+	root := t.TempDir()
+	cfg := &Config{Version: Version, Files: []FilePair{
+		{Plaintext: ".env", Ciphertext: ".env.age"},
+		{Plaintext: "config/dev.env", Ciphertext: "config/dev.env.age"},
+	}}
+	data, err := cfg.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(root, data)
+	if err != nil {
+		t.Fatalf("Parse(Encode()): %v\n%s", err, data)
+	}
+	if len(parsed.Files) != 2 || parsed.Files[1].Plaintext != "config/dev.env" || parsed.Files[1].Ciphertext != "config/dev.env.age" {
+		t.Fatalf("round trip lost mappings: %+v", parsed.Files)
+	}
+	if strings.Contains(string(data), root) {
+		t.Fatal("encoded config contains resolved absolute paths")
+	}
+}

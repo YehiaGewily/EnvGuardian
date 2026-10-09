@@ -6,7 +6,78 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Upgraded `golang.org/x/crypto` to v0.52.0 to fix GO-2026-5018, a denial of
+  service from pathological RSA/DSA parameters. It was reachable through SSH
+  recipient and identity parsing, and `recipients.toml` is repository
+  controlled. The module minimum is now Go 1.25, which that release requires.
+- Release binaries are built with the newest Go 1.27 patch release instead of
+  Go 1.25, whose standard library has known vulnerabilities reachable from
+  EnvGuardian.
+
+### Added
+
+- `doctor` diagnoses the local setup without decrypting: config and
+  recipients validity, `ssh-keygen` availability, gitignored plaintext,
+  ciphertext `-text` attributes, hook and driver installation and whether
+  their recorded binary still exists, and whether `HEAD` matches the accepted
+  commit. It supports `--json` and exits non-zero only for failures.
+- `add-file PLAINTEXT` and `remove-file PLAINTEXT` manage file mappings without
+  hand-editing `config.toml`. The config change, ciphertext, signature, and
+  lock are committed as one transaction.
+- Release archives include bash, zsh, fish, and PowerShell completion scripts,
+  and the Homebrew cask installs the bash, zsh, and fish ones.
+- The user guide documents a dedicated CI recipient for full `check`.
+
+- `--signing-key PATH` (or `ENVGUARDIAN_SIGNING_KEY`) names an SSH public key
+  whose private half is held by `ssh-agent`, such as 1Password, Secretive, or
+  a hardware token. Sealing signs through the agent with
+  `ssh-keygen -Y sign`, so agent-only keys can seal; decryption still uses the
+  `--identity` key. The signing key must belong to a current recipient. See
+  ADR 0009.
+
+- `check --base REF` compares the snapshot with a trusted base revision. Every
+  ciphertext that changed since `REF` must be signed by a recipient already
+  listed at `REF`, so a pull request that adds its author as a recipient (or
+  swaps a recipient's key) and re-seals with `encrypt --force` fails with exit
+  code 4. Recipient changes are reported by name. Resolving or reading `REF`
+  failing, or `REF` having no EnvGuardian configuration, is a failure.
+
+- Commands that write managed or plaintext files (`init`, `encrypt`,
+  `decrypt`, `add-recipient`, `revoke`, `rotation done`, `install-hooks`,
+  `diff --install`, `merge`, and the automatic-decryption hook) take an
+  exclusive, non-blocking operating-system lock on `.git/envguardian.lock` (in
+  the user cache directory outside Git). A second concurrent command exits 1
+  instead of interleaving its transaction. The lock is released when the
+  process exits, so a crash never leaves a stale lock. Read-only commands do
+  not take it.
+
+### Changed
+
+- Native Go fuzz targets now cover the config, recipients, lock, and
+  rotation-ledger parsers and the semantic merge. Config fuzzing asserts that
+  every accepted mapping resolves inside the repository and outside `.git/`;
+  merge fuzzing asserts the conflict set does not depend on which side is
+  ours. CI fuzzes each target on every run.
+- Releases publish an SPDX SBOM per archive and a GitHub build-provenance
+  attestation for every archive, SBOM, and `checksums.txt`. Verify a download
+  with `gh attestation verify FILE --repo YehiaGewily/EnvGuardian`.
+- CI tests Go 1.25 (the module minimum) and 1.27, runs `govulncheck`, and
+  enforces the 85% package coverage floor on `internal/authenticity`.
+
 ### Fixed
+
+- Hooks quote the recorded binary and config paths as literal POSIX shell words,
+  as the diff and merge drivers already did, so `$`, backticks, and quotes in a
+  path are no longer interpreted by the shell.
+- When the binary recorded in a hook has moved, the hook falls back to
+  `envguardian` on `PATH` with a reinstall hint. With no binary available,
+  `pre-commit` blocks the commit instead of failing with a missing-file error.
+- The managed hook block runs in a subshell, so a file checkout no longer skips
+  hook content that follows EnvGuardian's block.
+- `install-hooks`, `diff --install`, and `merge --install` refuse to record a
+  temporary `go run` binary, which Go deletes when the command exits.
 
 - `init` now writes `*.age -text` and `*.age.sig -text` to `.gitattributes`.
   Without them, a teammate cloning with `core.autocrlf=true` (the Git for
@@ -166,7 +237,7 @@ and must not be used for real secrets.
 - Revocation, rotation commands, sender authentication, a merge driver, and the
   ADR set are unimplemented.
 
-See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
+See [SECURITY.md](SECURITY.md).
 
 [Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...v0.2.1

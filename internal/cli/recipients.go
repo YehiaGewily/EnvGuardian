@@ -21,7 +21,7 @@ func newAddRecipientCmd(flags *globalFlags) *cobra.Command {
 		Short: "Add a recipient and re-encrypt to the new set",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAddRecipient(cmd, flags, github, key, sshPath, name)
+			return exclusive(flags, func() error { return runAddRecipient(cmd, flags, github, key, sshPath, name) })
 		},
 	}
 	cmd.Flags().StringVar(&github, "github", "", "fetch the recipient's ed25519 key from github.com/<user>.keys")
@@ -135,8 +135,12 @@ func runAddRecipient(cmd *cobra.Command, flags *globalFlags, github, key, sshPat
 		plans = append(plans, plan)
 	}
 	additional := []*crypt.FilePlan{recipientsPlan}
+	signer, err := resolveSigner(flags, identity)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, candidate.Fingerprint(), candidate, identity, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, candidate.Fingerprint(), candidate, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}

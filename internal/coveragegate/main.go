@@ -14,10 +14,11 @@ import (
 const overallFloor = 80.0
 
 var packageFloors = map[string]float64{
-	"crypt":  85.0,
-	"config": 85.0,
-	"keys":   85.0,
-	"dotenv": 85.0,
+	"authenticity": 85.0,
+	"crypt":        85.0,
+	"config":       85.0,
+	"keys":         85.0,
+	"dotenv":       85.0,
 }
 
 type counter struct {
@@ -105,12 +106,12 @@ func validate(overall counter, packages map[string]counter) error {
 	var failures []string
 	for name, floor := range packageFloors {
 		value := packages[name]
-		fmt.Printf("coverage %-8s %5.1f%% (minimum %.1f%%)\n", name, value.percent(), floor)
+		fmt.Printf("coverage %-12s %5.1f%% (minimum %.1f%%)\n", name, value.percent(), floor)
 		if value.percent()+0.0001 < floor {
 			failures = append(failures, name)
 		}
 	}
-	fmt.Printf("coverage overall  %5.1f%% (minimum %.1f%%)\n", overall.percent(), overallFloor)
+	fmt.Printf("coverage overall      %5.1f%% (minimum %.1f%%)\n", overall.percent(), overallFloor)
 	if overall.percent()+0.0001 < overallFloor {
 		failures = append(failures, "overall")
 	}
