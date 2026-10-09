@@ -53,7 +53,7 @@ make fuzz       # 60s of parser fuzzing
 make test-diff  # build-tagged differential test vs joho/godotenv
 ```
 
-- Go 1.24+.
+- Go 1.25+.
 - Prefer small packages, explicit errors wrapped with `%w`, no global state,
   and no `init()` side effects.
 - Errors must say what was attempted and what the user can do next without
@@ -72,8 +72,8 @@ make test-diff  # build-tagged differential test vs joho/godotenv
 ## Pull requests
 
 - Keep changes focused.
-- Run `make test lint` before pushing; CI tests Go 1.24 and 1.25 on Linux,
-  macOS, and Windows.
+- Run `make test lint` before pushing; CI tests Go 1.25 (the module minimum)
+  and 1.27 on Linux, macOS, and Windows.
 - Update `CHANGELOG.md` under `## [Unreleased]`.
 - Sign commits. Protected branches require signed commits and pull-request
   review.

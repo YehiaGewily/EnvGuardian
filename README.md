@@ -66,7 +66,7 @@ Three questions decide everything the tool does:
 > # macOS / Linux — Homebrew
 > brew install --cask yehiagewily/tap/envguardian
 >
-> # Any platform with Go 1.24+
+> # Any platform with Go 1.25+
 > go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.1
 > ```
 > Or run from source without installing — the examples below use `go run ./cmd/envguardian`;

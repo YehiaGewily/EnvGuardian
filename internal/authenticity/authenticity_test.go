@@ -1,6 +1,7 @@
 package authenticity
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,5 +124,111 @@ func TestPayloadContainsNoPlaintextSentinel(t *testing.T) {
 	payload := Payload(testBinding(rf), []byte("ciphertext-does-not-contain-plaintext"))
 	if strings.Contains(string(payload), "SENTINEL-PLAINTEXT-SECRET") {
 		t.Fatal("signature payload contains plaintext sentinel")
+	}
+}
+
+func TestSignatureNameCanonicalizesSeparators(t *testing.T) {
+	tests := map[string]string{
+		".env.age":            ".env.age.sig",
+		`config\dev\.env.age`: "config/dev/.env.age.sig",
+		"./config//.env.age":  "config/.env.age.sig",
+	}
+	for input, want := range tests {
+		if got := SignatureName(input); got != want {
+			t.Errorf("SignatureName(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestSignRejectsUnusableIdentities(t *testing.T) {
+	alice := newSigningFixture(t, "alice")
+	outsider := newSigningFixture(t, "outsider")
+	rf := &keys.RecipientsFile{Recipients: []keys.Recipient{alice.recipient}}
+	ageOnly := &keys.Identity{Recipient: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"}
+	tests := []struct {
+		name     string
+		identity *keys.Identity
+		reason   string
+	}{
+		{name: "nil identity", identity: nil, reason: "requires an SSH private-key file"},
+		{name: "age identity", identity: ageOnly, reason: "requires an SSH private-key file"},
+		{name: "non-recipient", identity: outsider.identity, reason: "not a current recipient"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := Sign(tt.identity, rf, testBinding(rf), []byte("ciphertext"))
+			var sigErr *SignatureError
+			if !errors.As(err, &sigErr) {
+				t.Fatalf("Sign error=%v, want *SignatureError", err)
+			}
+			if !strings.Contains(err.Error(), tt.reason) || !strings.Contains(err.Error(), ".env.age") {
+				t.Fatalf("error %q does not name path and reason %q", err, tt.reason)
+			}
+		})
+	}
+}
+
+func TestSignReportsSSHKeygenFailureWithoutKeyMaterial(t *testing.T) {
+	alice := newSigningFixture(t, "alice")
+	rf := &keys.RecipientsFile{Recipients: []keys.Recipient{alice.recipient}}
+	keyBytes, err := os.ReadFile(alice.identity.SSHKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alice.identity.SSHKeyPath); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = Sign(alice.identity, rf, testBinding(rf), []byte("ciphertext"))
+	var sigErr *SignatureError
+	if !errors.As(err, &sigErr) || sigErr.Unwrap() == nil {
+		t.Fatalf("Sign error=%v, want wrapped *SignatureError", err)
+	}
+	if strings.Contains(err.Error(), strings.TrimSpace(string(keyBytes))) {
+		t.Fatal("signing error disclosed private key material")
+	}
+}
+
+func TestVerifyRejectsUnverifiableInputs(t *testing.T) {
+	alice := newSigningFixture(t, "alice")
+	rf := &keys.RecipientsFile{Recipients: []keys.Recipient{alice.recipient}}
+	ageOnly := &keys.RecipientsFile{Recipients: []keys.Recipient{{Name: "n", Key: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"}}}
+	signature, _, err := Sign(alice.identity, rf, testBinding(rf), []byte("ciphertext"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		signature  []byte
+		recipients *keys.RecipientsFile
+		reason     string
+	}{
+		{name: "empty signature", signature: []byte(" \n"), recipients: rf, reason: "empty"},
+		{name: "no SSH recipients", signature: signature, recipients: ageOnly, reason: "no current recipient has an SSH key"},
+		{name: "garbage signature", signature: []byte("not an ssh signature"), recipients: rf, reason: "invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Verify(tt.signature, tt.recipients, testBinding(tt.recipients), []byte("ciphertext"))
+			var sigErr *SignatureError
+			if !errors.As(err, &sigErr) || !strings.Contains(err.Error(), tt.reason) {
+				t.Fatalf("Verify error=%v, want *SignatureError mentioning %q", err, tt.reason)
+			}
+		})
+	}
+}
+
+func TestMissingSSHKeygenFailsClosed(t *testing.T) {
+	alice := newSigningFixture(t, "alice")
+	rf := &keys.RecipientsFile{Recipients: []keys.Recipient{alice.recipient}}
+	signature, _, err := Sign(alice.identity, rf, testBinding(rf), []byte("ciphertext"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, _, err := Sign(alice.identity, rf, testBinding(rf), []byte("ciphertext")); err == nil || !strings.Contains(err.Error(), "ssh-keygen is unavailable") {
+		t.Fatalf("Sign without ssh-keygen error=%v", err)
+	}
+	if _, err := Verify(signature, rf, testBinding(rf), []byte("ciphertext")); err == nil || !strings.Contains(err.Error(), "ssh-keygen is unavailable") {
+		t.Fatalf("Verify without ssh-keygen error=%v", err)
 	}
 }

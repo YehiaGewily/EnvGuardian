@@ -6,6 +6,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Upgraded `golang.org/x/crypto` to v0.52.0 to fix GO-2026-5018, a denial of
+  service from pathological RSA/DSA parameters. It was reachable through SSH
+  recipient and identity parsing, and `recipients.toml` is repository
+  controlled. The module minimum is now Go 1.25, which that release requires.
+- Release binaries are built with the newest Go 1.27 patch release instead of
+  Go 1.25, whose standard library has known vulnerabilities reachable from
+  EnvGuardian.
+
+### Changed
+
+- CI tests Go 1.25 (the module minimum) and 1.27, runs `govulncheck`, and
+  enforces the 85% package coverage floor on `internal/authenticity`.
+
 ### Fixed
 
 - `init` now writes `*.age -text` and `*.age.sig -text` to `.gitattributes`.
