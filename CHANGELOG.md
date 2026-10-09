@@ -43,6 +43,9 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Releases publish an SPDX SBOM per archive and a GitHub build-provenance
+  attestation for every archive, SBOM, and `checksums.txt`. Verify a download
+  with `gh attestation verify FILE --repo YehiaGewily/EnvGuardian`.
 - CI tests Go 1.25 (the module minimum) and 1.27, runs `govulncheck`, and
   enforces the 85% package coverage floor on `internal/authenticity`.
 

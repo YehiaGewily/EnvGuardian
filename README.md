@@ -72,6 +72,8 @@ Three questions decide everything the tool does:
 > Or run from source without installing — the examples below use `go run ./cmd/envguardian`;
 > swap in `envguardian` if you installed it. Git hooks and drivers need an installed binary.
 > Pre-built binaries for every OS are on the [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.1).
+> Releases after `v0.2.1` include an SBOM and a build-provenance attestation per archive;
+> see [Verifying a downloaded release](docs/RELEASING.md#verifying-a-downloaded-release).
 
 **Repo owner — first-time setup:**
 

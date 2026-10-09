@@ -57,9 +57,10 @@ Do not run these commands until the release gate in the plan is complete.
    git push origin v0.2.0
    ```
 
-4. Download every release asset, verify `checksums.txt`, and run the binary on
-   Linux, macOS, and Windows. Confirm both architectures were published for
-   each OS.
+4. Download every release asset, verify `checksums.txt` and each archive's
+   attestation (see [Verifying a downloaded release](#verifying-a-downloaded-release)),
+   and run the binary on Linux, macOS, and Windows. Confirm both architectures
+   and an SBOM per archive were published for each OS.
 5. Verify source installation from a clean module/cache environment:
 
    ```bash
@@ -80,6 +81,22 @@ Do not run these commands until the release gate in the plan is complete.
    instructions. Keep the Windows owner-only DACL caveats (Administrators,
    SYSTEM, and backup tools can read; older files keep their ACL until
    rewritten) documented.
+
+## Verifying a downloaded release
+
+Every published archive, its SPDX SBOM (`*.sbom.json`), and `checksums.txt`
+carry a GitHub build-provenance attestation produced by the release workflow.
+Releases up to `v0.2.1` have no attestations. To verify an archive was built
+by this repository's release workflow from a tagged commit:
+
+```bash
+gh attestation verify envguardian_0.2.2_linux_amd64.tar.gz --repo YehiaGewily/EnvGuardian
+sha256sum --check --ignore-missing checksums.txt
+```
+
+`gh attestation verify` fails if the file was modified after the build or was
+not produced by `.github/workflows/release.yml` in this repository. The SBOM
+lists the Go module dependencies compiled into each binary.
 
 ## Coverage badge
 
