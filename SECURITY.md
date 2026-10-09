@@ -103,7 +103,11 @@ authorized, and a green `check` on a pull request that changes
 `recipients.toml` proves nothing about who authored the new ciphertext. The
 security boundary is code-owner review of `.envguardian/recipients.toml`.
 Reviewers should reject pull requests that change recipients and ciphertext
-together unless both changes are confirmed out of band. See
+together unless both changes are confirmed out of band.
+
+`check --base REF` (unreleased, on `main`) requires every ciphertext changed
+since `REF` to be signed by a recipient already trusted at `REF`. Run it in CI
+with the pull request's base commit to fail this pattern automatically. See
 [docs/threat-model.md](docs/threat-model.md).
 
 ### Accepted-commit trust state

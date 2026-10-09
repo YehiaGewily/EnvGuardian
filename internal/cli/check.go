@@ -30,15 +30,21 @@ func (r checkResult) failed() bool { return !r.OK && !r.Skipped }
 
 func newCheckCmd(flags *globalFlags) *cobra.Command {
 	var structuralOnly bool
+	var base string
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Verify committed repository integrity (CI mode)",
-		Args:  cobra.NoArgs,
+		Long: "Verify committed repository integrity. A snapshot is checked against its own\n" +
+			"recipients.toml, so on a pull request also pass --base with the target branch's\n" +
+			"commit: every ciphertext changed since that base must then be signed by a\n" +
+			"recipient the base already trusted.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheck(cmd, flags, structuralOnly)
+			return runCheck(cmd, flags, structuralOnly, base)
 		},
 	}
 	cmd.Flags().BoolVar(&structuralOnly, "structural-only", false, "verify public repository structure without decrypting ciphertext")
+	cmd.Flags().StringVar(&base, "base", "", "trusted base revision; changed ciphertext must be signed by a recipient trusted there")
 	return cmd
 }
 
@@ -56,12 +62,19 @@ func newCheckLocalCmd(flags *globalFlags) *cobra.Command {
 	return cmd
 }
 
-func runCheck(cmd *cobra.Command, flags *globalFlags, structuralOnly bool) error {
+func runCheck(cmd *cobra.Command, flags *globalFlags, structuralOnly bool, base string) error {
 	p, err := secureRootPaths(flags)
 	if err != nil {
 		return err
 	}
-	results, _, identityErr := collectRepositoryChecks(p, flags, structuralOnly)
+	results, cfg, identityErr := collectRepositoryChecks(p, flags, structuralOnly)
+	if cmd.Flags().Changed("base") {
+		if cfg == nil {
+			results = append(results, checkResult{Name: "base " + base, Detail: "skipped comparison because the current config is invalid", Code: exitConfig})
+		} else {
+			results = append(results, checkBaseProvenance(p, cfg, base)...)
+		}
+	}
 	if err := printCheckResults(cmd, flags, results); err != nil {
 		return err
 	}

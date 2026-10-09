@@ -315,9 +315,31 @@ fingerprint match, a valid signature per ciphertext, `.env` is gitignored, ciphe
 decrypts to valid dotenv, and the rotation ledger is readable. `--structural-only` skips
 only the decryption step and says so explicitly.
 
-`check` verifies a snapshot against its own `recipients.toml`, so it cannot detect a pull
-request that adds its author as a recipient and re-seals the ciphertext. See
-[Reviewing recipient changes](#reviewing-recipient-changes).
+On its own, `check` verifies a snapshot against that snapshot's `recipients.toml`, so it
+cannot detect a pull request that adds its author as a recipient and re-seals the
+ciphertext. On pull requests, also pass the target branch's commit with `--base`:
+
+```bash
+envguardian check --structural-only --base "$BASE_SHA"
+```
+
+With `--base`, every ciphertext that changed since the base must carry a signature from a
+recipient who was already trusted at the base, and any recipient change is reported by
+name as a warning. A self-added recipient, or a recipient whose key was swapped on the
+branch, fails with exit `4`. If the base cannot be resolved or read, or has no
+EnvGuardian configuration yet (the first adoption pull request), the check fails rather
+than skipping the comparison. In GitHub Actions:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # the base commit must be present
+- run: envguardian check --structural-only --base "${{ github.event.pull_request.base.sha }}"
+```
+
+`--base` proves who sealed a change, not that a legitimate recipient's change is
+benign, and a recipient can still add a teammate with `add-recipient`. Keep code-owner
+review of `recipients.toml`; see [Reviewing recipient changes](#reviewing-recipient-changes).
 
 ### `check-local` — developer synchronization
 
@@ -435,7 +457,7 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 | `envguardian list-recipients` | List who can decrypt. | `--json` |
 | `envguardian rotation status` | List pending rotation key names. | `--json` |
 | `envguardian rotation done KEY` | Mark one rotated key name complete. | `--json` |
-| `envguardian check` | Verify committed repository integrity (CI). | `--structural-only`, `--json` |
+| `envguardian check` | Verify committed repository integrity (CI). | `--structural-only`, `--base REF`, `--json` |
 | `envguardian check-local` | Verify local plaintext matches ciphertext. | `--allow-missing` |
 | `envguardian install-hooks` | Install git hooks (auto-decrypt alert + block plaintext commits). | `--uninstall` |
 | `envguardian diff` | Show changed key names; `--install` registers the git diff driver. | `--install` |

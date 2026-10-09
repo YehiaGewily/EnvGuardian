@@ -161,7 +161,9 @@ release hardening.
   digest/fingerprint, ciphertext signature, ciphertext decryption and dotenv validity,
   gitignore state, and the rotation ledger. It requires an identity; `--structural-only` is
   the explicit fork-PR mode when CI secrets are absent. It deliberately does not compare
-  uncommitted local plaintext because CI cannot observe a developer's `.env`.
+  uncommitted local plaintext because CI cannot observe a developer's `.env`. On pull
+  requests, `--base REF` additionally requires every ciphertext changed since `REF` to be
+  signed by a recipient already trusted at `REF`.
 - `check-local` compares the developer's plaintext with decryptable ciphertext and fails on
   a missing plaintext unless `--allow-missing` is explicit.
 - Automatic hooks and plain `decrypt` inside a Git repository share one gate: they compare
@@ -234,7 +236,8 @@ EnvGuardian does **not** protect against:
   changes `recipients.toml` proves nothing about who authored the new ciphertext. Human
   review of `.envguardian/recipients.toml` (routed by CODEOWNERS) is the boundary.
   Reviewers should reject pull requests that change recipients and ciphertext together
-  unless both changes are confirmed out of band.
+  unless both changes are confirmed out of band. Running `check --base` with the pull
+  request's base commit (unreleased, on `main`) fails this pattern automatically.
 - **Plain `decrypt` in `v0.2.0` and `v0.2.1`.** It skipped the accepted-commit check, so it
   installed an unreviewed branch's ciphertext that the hook had refused; see the advisory in
   [SECURITY.md](SECURITY.md).

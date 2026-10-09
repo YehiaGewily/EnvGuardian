@@ -18,6 +18,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `check --base REF` compares the snapshot with a trusted base revision. Every
+  ciphertext that changed since `REF` must be signed by a recipient already
+  listed at `REF`, so a pull request that adds its author as a recipient (or
+  swaps a recipient's key) and re-seals with `encrypt --force` fails with exit
+  code 4. Recipient changes are reported by name. Resolving or reading `REF`
+  failing, or `REF` having no EnvGuardian configuration, is a failure.
+
 - Commands that write managed or plaintext files (`init`, `encrypt`,
   `decrypt`, `add-recipient`, `revoke`, `rotation done`, `install-hooks`,
   `diff --install`, `merge`, and the automatic-decryption hook) take an
