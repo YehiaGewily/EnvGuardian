@@ -379,6 +379,11 @@ Installs three hooks (in managed, clearly-delimited blocks so they coexist with 
   way around the alert. Git ignores a post-merge hook's exit status, so a blocked pull still
   completes; read the alert.
 
+Hooks record the absolute path of the binary that installed them. If that binary later
+moves (an upgrade, a reinstall elsewhere), the hooks fall back to `envguardian` on your
+`PATH` and print a hint to rerun `envguardian install-hooks`. If no binary can be found,
+`pre-commit` blocks the commit rather than skipping its checks.
+
 ### Secret-safe diff
 
 ```bash
@@ -410,6 +415,11 @@ lock only after all per-file decisions succeed. If the same key changed on both 
 
 > Merge/diff drivers are registered **locally**, from your own binary path — EnvGuardian
 > never executes a command string supplied by the repository.
+>
+> `install-hooks`, `diff --install`, and `merge --install` refuse to run from
+> `go run`, whose temporary binary is deleted when the command exits. Install the binary
+> first (`go install`, Homebrew, or a release archive). If you move or upgrade the binary,
+> rerun `diff --install` and `merge --install` to update the recorded path.
 
 ---
 

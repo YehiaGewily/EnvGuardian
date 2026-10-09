@@ -23,6 +23,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Hooks quote the recorded binary and config paths as literal POSIX shell words,
+  as the diff and merge drivers already did, so `$`, backticks, and quotes in a
+  path are no longer interpreted by the shell.
+- When the binary recorded in a hook has moved, the hook falls back to
+  `envguardian` on `PATH` with a reinstall hint. With no binary available,
+  `pre-commit` blocks the commit instead of failing with a missing-file error.
+- The managed hook block runs in a subshell, so a file checkout no longer skips
+  hook content that follows EnvGuardian's block.
+- `install-hooks`, `diff --install`, and `merge --install` refuse to record a
+  temporary `go run` binary, which Go deletes when the command exits.
+
 - `init` now writes `*.age -text` and `*.age.sig -text` to `.gitattributes`.
   Without them, a teammate cloning with `core.autocrlf=true` (the Git for
   Windows default) received line-converted ciphertext, so `check` reported a

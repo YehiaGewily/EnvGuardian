@@ -266,7 +266,7 @@ func TestCustomConfigUsesIndependentLock(t *testing.T) {
 
 func TestHookBodyPreservesExplicitConfig(t *testing.T) {
 	body := hookBody("post-merge", "envguardian", "C:/repo/.envguardian/staging.toml")
-	if !strings.Contains(body, `--config "C:/repo/.envguardian/staging.toml" hook-auto-decrypt`) {
+	if !strings.Contains(body, `--config 'C:/repo/.envguardian/staging.toml' hook-auto-decrypt`) {
 		t.Fatalf("custom-config hook body = %q", body)
 	}
 }

@@ -168,13 +168,17 @@ func installDiffDriver(cmd *cobra.Command, flags *globalFlags) error {
 		return err
 	}
 	root := gitRoot(p.Root)
+	exe, err := installableSelfPath()
+	if err != nil {
+		return err
+	}
 
 	added, err := gitint.AppendLine(filepath.Join(root, ".gitattributes"), "*.age diff=envguardian")
 	if err != nil {
 		return err
 	}
 
-	command := shellQuote(selfPath()) + " diff-driver"
+	command := shellQuote(exe) + " diff-driver"
 	if err := gitRun(root, "config", "--local", "diff.envguardian.command", command); err != nil {
 		return err
 	}

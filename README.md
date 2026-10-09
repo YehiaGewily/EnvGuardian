@@ -70,8 +70,8 @@ Three questions decide everything the tool does:
 > go install github.com/YehiaGewily/envguardian/cmd/envguardian@v0.2.1
 > ```
 > Or run from source without installing — the examples below use `go run ./cmd/envguardian`;
-> swap in `envguardian` if you installed it. Pre-built binaries for every OS are on the
-> [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.1).
+> swap in `envguardian` if you installed it. Git hooks and drivers need an installed binary.
+> Pre-built binaries for every OS are on the [releases page](https://github.com/YehiaGewily/EnvGuardian/releases/tag/v0.2.1).
 
 **Repo owner — first-time setup:**
 

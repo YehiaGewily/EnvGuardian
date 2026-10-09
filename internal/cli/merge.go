@@ -73,6 +73,10 @@ func installMergeDriver(cmd *cobra.Command, flags *globalFlags) error {
 		return err
 	}
 	root := gitRoot(p.Root)
+	exe, err := installableSelfPath()
+	if err != nil {
+		return err
+	}
 	lines := []string{
 		"*.age -text merge=envguardian",
 		"*.age.sig -text merge=envguardian-generated",
@@ -83,7 +87,7 @@ func installMergeDriver(cmd *cobra.Command, flags *globalFlags) error {
 			return err
 		}
 	}
-	binary := shellQuote(selfPath())
+	binary := shellQuote(exe)
 	if err := gitRun(root, "config", "--local", "merge.envguardian.driver", binary+" merge-driver %O %A %B %P"); err != nil {
 		return err
 	}

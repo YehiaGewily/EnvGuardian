@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -354,4 +355,144 @@ func TestPreCommitRejectsMissingSignature(t *testing.T) {
 	if code != exitSignature || !strings.Contains(out, missingSignatureFailure) {
 		t.Fatalf("missing signature exit=%d\n%s", code, out)
 	}
+}
+
+func TestIsGoRunBinary(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/tmp/go-build3912/b001/exe/envguardian", true},
+		{filepath.FromSlash("C:/Users/dev/AppData/Local/Temp/go-build1234/b001/exe/envguardian.exe"), true},
+		{"/home/dev/go/bin/envguardian", false},
+		{"/opt/homebrew/bin/envguardian", false},
+		{"/tmp/go-build3912/b001/cli.test", false},
+		{"/srv/tools/exe/envguardian", false},
+	}
+	for _, tt := range tests {
+		if got := isGoRunBinary(tt.path); got != tt.want {
+			t.Errorf("isGoRunBinary(%q)=%v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+// runHookBlock executes one managed hook block with /bin/sh semantics and the
+// given PATH, returning combined output and the exit code.
+func runHookBlock(t *testing.T, body, pathEnv string, args ...string) (string, int) {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh is required")
+	}
+	script := filepath.Join(t.TempDir(), "hook")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"+hookBegin+"\n"+body+"\n"+hookEnd+"\necho after-block\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sh, append([]string{script}, args...)...) // #nosec G204 -- test-owned script
+	cmd.Env = append(os.Environ(), "PATH="+pathEnv)
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run hook: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	return string(out), code
+}
+
+// fakeEnvguardian writes a shell script that reports how it was invoked.
+func fakeEnvguardian(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho \"ran $*\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestHookBodyKeepsShellMetacharactersLiteral(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file names with quotes and dollars")
+	}
+	dir := filepath.Join(t.TempDir(), "it's $HOME `id`")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	exe := fakeEnvguardian(t, dir, "envguardian")
+	shDir := filepath.Dir(mustLookPath(t, "sh"))
+	out, code := runHookBlock(t, hookBody("post-merge", exe, "/repo/it's $x.toml"), shDir)
+	if code != 0 || !strings.Contains(out, "ran --config /repo/it's $x.toml hook-auto-decrypt") {
+		t.Fatalf("exit=%d output:\n%s", code, out)
+	}
+	if !strings.Contains(out, "after-block") {
+		t.Fatalf("managed block skipped later hook content:\n%s", out)
+	}
+}
+
+func TestHookFallsBackToPathWhenRecordedBinaryMoved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake binaries are POSIX shell scripts")
+	}
+	pathDir := t.TempDir()
+	fakeEnvguardian(t, pathDir, "envguardian")
+	shDir := filepath.Dir(mustLookPath(t, "sh"))
+	missing := filepath.Join(t.TempDir(), "gone", "envguardian")
+
+	out, code := runHookBlock(t, hookBody("pre-commit", missing, ""), pathDir+":"+shDir)
+	if code != 0 || !strings.Contains(out, "ran hook-pre-commit") || !strings.Contains(out, "envguardian install-hooks") {
+		t.Fatalf("fallback exit=%d output:\n%s", code, out)
+	}
+
+	out, code = runHookBlock(t, hookBody("pre-commit", missing, ""), shDir)
+	if code == 0 || !strings.Contains(out, "not on PATH") || strings.Contains(out, "after-block") {
+		t.Fatalf("pre-commit with no binary must fail closed: exit=%d output:\n%s", code, out)
+	}
+
+	out, code = runHookBlock(t, hookBody("post-checkout", missing, ""), shDir, "old", "new", "0")
+	if code != 0 || strings.Contains(out, "missing") || !strings.Contains(out, "after-block") {
+		t.Fatalf("file checkout must skip the block quietly and keep later content: exit=%d output:\n%s", code, out)
+	}
+}
+
+func TestPreCommitHookFailsClosedWhenBinaryMoved(t *testing.T) {
+	bin := buildBinary(t)
+	repo := gitInitRepo(t)
+	idPath := filepath.Join(repo, "id.txt")
+	writeAgeID(t, idPath)
+	if out, code := run(t, repo, bin, "init", "--identity", idPath, "--name", "alice"); code != 0 {
+		t.Fatalf("init: %d\n%s", code, out)
+	}
+	if out, code := run(t, repo, bin, "install-hooks"); code != 0 {
+		t.Fatalf("install-hooks: %d\n%s", code, out)
+	}
+	if err := os.Rename(bin, bin+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "git", "add", "README.md")
+	commit := exec.Command("git", "commit", "-m", "after move")
+	commit.Dir = repo
+	// Only Git and its shell: no envguardian is reachable through PATH.
+	pathEnv := filepath.Dir(mustLookPath(t, "git")) + string(os.PathListSeparator) + filepath.Dir(mustLookPath(t, "sh"))
+	commit.Env = append(os.Environ(), "PATH="+pathEnv)
+	out, err := commit.CombinedOutput()
+	if err == nil {
+		t.Fatalf("commit succeeded with no envguardian binary available:\n%s", out)
+	}
+	if !strings.Contains(string(out), "recorded binary") {
+		t.Fatalf("missing reinstall hint:\n%s", out)
+	}
+}
+
+func mustLookPath(t *testing.T, name string) string {
+	t.Helper()
+	found, err := exec.LookPath(name)
+	if err != nil {
+		t.Skipf("%s is required", name)
+	}
+	return found
 }
