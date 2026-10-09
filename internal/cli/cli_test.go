@@ -328,7 +328,7 @@ func TestAgeOnlyIdentityCannotSealAuthenticatedCiphertext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, stderr, code := runCLI(t, "encrypt", "--identity", identityPath)
-	if code != exitSignature || !strings.Contains(stderr, "requires an SSH private-key file") {
+	if code != exitSignature || !strings.Contains(stderr, "sealing requires an SSH key") {
 		t.Fatalf("age-only seal exit=%d stderr=%s", code, stderr)
 	}
 	for _, path := range []string{".env.age", ".env.age.sig", ".envguardian/lock.toml"} {

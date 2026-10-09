@@ -85,8 +85,12 @@ func runEncrypt(cmd *cobra.Command, flags *globalFlags, force, fix bool) error {
 		plans = append(plans, plan)
 	}
 	signaturePlans := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	signer, err := resolveSigner(flags, id)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}

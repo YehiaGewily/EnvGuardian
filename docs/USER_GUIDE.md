@@ -177,6 +177,7 @@ These persistent flags work on (almost) every command:
 | Flag | Meaning |
 |---|---|
 | `--identity <path>` | Path to the age/SSH identity to decrypt/sign with. Defaults to your usual SSH key; `ENVGUARDIAN_IDENTITY` env var is also honored. |
+| `--signing-key <path>` | SSH **public** key file whose private half is held by `ssh-agent` (1Password, Secretive, a hardware token). New ciphertext is signed through the agent instead of with the `--identity` key file. `ENVGUARDIAN_SIGNING_KEY` is also honored. |
 | `--config <path>` | Path to the EnvGuardian config file (for non-standard layouts). |
 | `--json` | Machine-readable JSON output. **Only valid** on `check`, `list-recipients`, `rotation status`, and `rotation done` — it errors elsewhere. |
 | `-v`, `--verbose` | Report progress on stderr. Never prints secret values. |
@@ -184,6 +185,26 @@ These persistent flags work on (almost) every command:
 > There is **no `-i` shorthand** for `--identity`. `-v` is the only short flag.
 
 Commands auto-discover the repository root, so they work from any subdirectory.
+
+**Keys that live only in an agent.** Sealing signs every ciphertext with an SSH key that
+belongs to a current recipient. If that key lives only in an agent, decrypt with a separate
+identity (age cannot decrypt through an agent) and sign with `--signing-key`. List both
+public keys for yourself in `recipients.toml`:
+
+```toml
+[[recipient]]
+name = "alice"
+keys = ["age1...", "ssh-ed25519 AAAA... alice@laptop"]
+```
+
+```bash
+export ENVGUARDIAN_IDENTITY=~/.config/envguardian/identity.txt   # age key: decrypts
+export ENVGUARDIAN_SIGNING_KEY=~/.ssh/id_ed25519.pub             # agent key: signs
+envguardian encrypt
+```
+
+If the agent is not running or does not hold the key, sealing fails before any file is
+written. See [ADR 0009](adr/0009-ssh-agent-signing.md).
 
 ---
 

@@ -215,8 +215,12 @@ func continueCiphertextMerge(cmd *cobra.Command, flags *globalFlags) error {
 		plans = append(plans, plan)
 	}
 	additional := make([]*crypt.FilePlan, 0, len(cfg.Files))
+	signer, err := resolveSigner(flags, id)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, id, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, rf.Fingerprint(), rf, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}

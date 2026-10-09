@@ -18,6 +18,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--signing-key PATH` (or `ENVGUARDIAN_SIGNING_KEY`) names an SSH public key
+  whose private half is held by `ssh-agent`, such as 1Password, Secretive, or
+  a hardware token. Sealing signs through the agent with
+  `ssh-keygen -Y sign`, so agent-only keys can seal; decryption still uses the
+  `--identity` key. The signing key must belong to a current recipient. See
+  ADR 0009.
+
 - `check --base REF` compares the snapshot with a trusted base revision. Every
   ciphertext that changed since `REF` must be signed by a recipient already
   listed at `REF`, so a pull request that adds its author as a recipient (or

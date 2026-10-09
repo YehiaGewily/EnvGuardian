@@ -139,8 +139,12 @@ func runRevoke(cmd *cobra.Command, flags *globalFlags, name string) error {
 		plans = append(plans, plan)
 	}
 	additional := []*crypt.FilePlan{recipientsPlan, ledgerPlan}
+	signer, err := resolveSigner(flags, identity)
+	if err != nil {
+		return err
+	}
 	for i, fp := range cfg.Files {
-		signaturePlan, signErr := planCiphertextSignature(p, fp, candidate.Fingerprint(), candidate, identity, plans[i])
+		signaturePlan, signErr := planCiphertextSignature(p, fp, candidate.Fingerprint(), candidate, signer, plans[i])
 		if signErr != nil {
 			return signErr
 		}

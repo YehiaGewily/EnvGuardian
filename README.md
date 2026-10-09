@@ -156,7 +156,8 @@ release hardening.
 - Every new or replaced ciphertext gets a sibling `.sig` made through `ssh-keygen -Y sign`.
   The signature binds the ciphertext digest, recipient fingerprint, config path, and
   complete file mapping. Verification accepts only a current SSH recipient. Sealing
-  therefore requires an SSH private-key file; age-only identities can still decrypt.
+  therefore requires a recipient's SSH key: a private-key file, or (unreleased, on `main`)
+  an agent-held key selected with `--signing-key`. age-only identities can still decrypt.
 - `check` verifies committed repository integrity: config and paths, recipients, lock
   digest/fingerprint, ciphertext signature, ciphertext decryption and dotenv validity,
   gitignore state, and the rotation ledger. It requires an identity; `--structural-only` is
