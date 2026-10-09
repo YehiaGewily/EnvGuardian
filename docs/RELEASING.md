@@ -12,7 +12,7 @@ The [release workflow](../.github/workflows/release.yml) has two paths:
   nothing;
 - pushing a future `v*` tag runs the publishing path.
 
-The publishing path must not be used until the Stage G release gate is complete.
+The publishing path must not be used until the release gate below is complete.
 Prebuilt binaries and Homebrew remain unavailable until a supported GitHub
 release and tap are actually published and verified.
 
@@ -44,7 +44,10 @@ repository.
 
 ## `v0.2.0` release procedure
 
-Do not run these commands until the release gate in the plan is complete.
+Do not run these commands until the release gate is complete: no open critical or
+high findings, CI green on the exact release commit, coverage floors passing,
+branch protection active, and a two-developer, two-identity hostile-branch
+scenario passing end to end.
 
 1. Confirm `main` is protected and green, every required check ran on the exact
    commit, and `CHANGELOG.md` contains final `v0.2.0` notes.

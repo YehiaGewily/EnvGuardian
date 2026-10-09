@@ -237,7 +237,7 @@ and must not be used for real secrets.
 - Revocation, rotation commands, sender authentication, a merge driver, and the
   ADR set are unimplemented.
 
-See [SECURITY.md](SECURITY.md) and [docs/PLAN.md](docs/PLAN.md).
+See [SECURITY.md](SECURITY.md).
 
 [Unreleased]: https://github.com/YehiaGewily/envguardian/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/YehiaGewily/envguardian/compare/v0.2.0...v0.2.1

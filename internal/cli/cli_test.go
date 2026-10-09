@@ -94,7 +94,7 @@ func assertGolden(t *testing.T, name, got string) {
 func writeAgeID(t *testing.T, path string) (recipient string) {
 	t.Helper()
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		t.Skip("ssh-keygen is required for Stage D CLI tests")
+		t.Skip("ssh-keygen is required for signing CLI tests")
 	}
 	cmd := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path) // #nosec G204 -- test-owned path
 	if output, err := cmd.CombinedOutput(); err != nil {

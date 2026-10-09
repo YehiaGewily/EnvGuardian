@@ -66,7 +66,7 @@ func sealConfiguration(cmd *cobra.Command, flags *globalFlags, p config.Paths, c
 		return withExit(exitConfig, err)
 	}
 
-	// Stage D requires an SSH identity for every new or replacement signature.
+	// Every new or replacement signature requires a recipient SSH key.
 	// Existing ciphertext also uses its age-compatible form for decrypt-compare.
 	id, err := keys.ResolveIdentity(flags.identity, keys.DefaultPrompter())
 	if err != nil {

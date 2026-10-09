@@ -10,7 +10,7 @@
 
 **Commit your team's `.env` to git — encrypted — so cloning the repo is all it takes to have working local config.**
 
-<sub>🌐&nbsp; <a href="https://yehiagewily.github.io/EnvGuardian/">envguardian landing page</a>&nbsp; ·&nbsp; 📖 <a href="docs/USER_GUIDE.md">User Guide</a>&nbsp; ·&nbsp; 🗺️ <a href="docs/PLAN.md">Status &amp; roadmap</a></sub>
+<sub>🌐&nbsp; <a href="https://yehiagewily.github.io/EnvGuardian/">envguardian landing page</a>&nbsp; ·&nbsp; 📖 <a href="docs/USER_GUIDE.md">User Guide</a>&nbsp; ·&nbsp; 📝 <a href="CHANGELOG.md">Changelog</a></sub>
 
 A key-management and git-integration layer over [`age`](https://github.com/FiloSottile/age). *Not* a cryptographic implementation.
 
@@ -28,7 +28,7 @@ A key-management and git-integration layer over [`age`](https://github.com/FiloS
 > is a **release candidate** — unsupported and not yet verified end to end. The `v0.1.0`
 > development tag has a known path-traversal vulnerability in
 > repository-controlled file mappings — **do not install its automatic git hooks.** See
-> [SECURITY.md](SECURITY.md) and the tracked [remediation plan](docs/PLAN.md).
+> [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -201,8 +201,8 @@ release hardening.
 
 </details>
 
-The authoritative status and sequencing live in [docs/PLAN.md](docs/PLAN.md). The old
-M0/M1/M2/M3 plan is historical.
+Release status is tracked in [SECURITY.md](SECURITY.md#supported-versions) and changes in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Threat model
 
@@ -271,8 +271,7 @@ Node, and Docker columns are documented reference notes, not CI-verified claims.
 
 - **[User Guide](docs/USER_GUIDE.md)** — command reference, daily workflows, git hooks,
   diff/merge drivers, and troubleshooting.
-- **[Remediation & Architecture Plan](docs/PLAN.md)** — authoritative status, stage map, and
-  release verification gates.
+- **[Changelog](CHANGELOG.md)** — released and unreleased changes, including security fixes.
 - **[Threat Model](docs/threat-model.md)** — security boundaries, automatic-decryption trust
   model, and detached-signature provenance.
 

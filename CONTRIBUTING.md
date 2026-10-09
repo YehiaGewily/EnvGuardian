@@ -39,8 +39,7 @@ rules; they do not depend on a local or tool-specific instruction file.
     errors fail closed; working-tree state must not substitute for staged
     security metadata.
 
-The Stage E single-file boundary has been superseded by v0.2 multi-file support
-on the transactional planner. Changes must preserve plan-before-write behavior
+v0.2 supports multiple file mappings on the transactional planner. Changes must preserve plan-before-write behavior
 across every configured pair and must never partially advance the shared lock.
 
 ## Development

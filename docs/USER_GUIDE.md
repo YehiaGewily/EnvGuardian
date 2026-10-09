@@ -620,5 +620,5 @@ By design, to stay finishable and trustworthy:
 
 ---
 
-*Authoritative status lives in [`docs/PLAN.md`](PLAN.md); security details in
+*Release status and security details are in
 [`SECURITY.md`](../SECURITY.md) and [`docs/threat-model.md`](threat-model.md).*
