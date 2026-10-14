@@ -7,6 +7,16 @@
   <title>EnvGuardian — commit your team's .env to git, encrypted</title>
   <meta name="description"
     content="A small CLI that lets a team commit its .env to git, encrypted to each developer's public key. A key-management layer over age(1). Pre-release.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://yehia-gewily.me/EnvGuardian/">
+  <meta property="og:title" content="EnvGuardian: commit your team's .env to git, encrypted">
+  <meta property="og:description"
+    content="Open-source CLI. Clone the repo, run one command, and you have working local config. Access is a reviewable file of public keys.">
+  <meta property="og:image" content="https://yehia-gewily.me/EnvGuardian/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="EnvGuardian logo with the tagline: Commit your .env to git. Encrypted.">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0B1210" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#F7F5F0" media="(prefers-color-scheme: light)">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -351,7 +361,8 @@
     .wrap {
       max-width: 1180px;
       margin: 0 auto;
-      padding: 0 32px;
+      padding-left: 32px;
+      padding-right: 32px;
     }
 
     section {
@@ -807,7 +818,62 @@
       font-size: var(--step1);
     }
 
+    /* ---------- demo video ---------- */
+    .watch .top {
+      display: grid;
+      grid-template-columns: 4fr 5fr;
+      gap: 56px;
+      align-items: end;
+      margin-bottom: 32px;
+    }
+
+    .watch h2 {
+      font-size: var(--step4);
+      max-width: 20ch;
+    }
+
+    .watch .top .sub {
+      color: var(--ink-2);
+      font-size: var(--step1);
+    }
+
+    .player {
+      margin: 0;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #1E1E2E;
+      box-shadow: var(--shadow);
+    }
+
+    .player video {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* ---------- early users ---------- */
+    .tryit h2 {
+      font-size: var(--step4);
+      max-width: 24ch;
+    }
+
+    .tryit .lede {
+      max-width: var(--measure);
+      margin-top: 18px;
+    }
+
+    .tryit .session {
+      margin-top: 28px;
+      max-width: 760px;
+    }
+
+    .tryit .hero-cta {
+      margin-top: 28px;
+    }
+
     .session {
+      white-space: pre-line;
       background: var(--code-bg);
       border: 1px solid var(--rule);
       border-radius: 6px;
@@ -1282,6 +1348,7 @@
       .hero-grid,
       .filetree,
       .workflow .top,
+      .watch .top,
       .notthis .top,
       .honesty-grid {
         grid-template-columns: 1fr;
@@ -1467,8 +1534,8 @@
   <div class="prerelease" role="note">
     <div class="inner">
       <span class="tag">Pre-release</span>
-      <span><strong>v0.2.1</strong> is a release candidate — security hardening and release verification are still
-        open.</span>
+      <span><strong>v0.2.3</strong> is the latest release candidate — security hardening and release verification
+        are still open.</span>
       <span>Don't hold real secrets in it yet.</span>
       <a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/SECURITY.md">See status →</a>
     </div>
@@ -1534,7 +1601,7 @@
           <p class="signature">
             <span>Go 1.25+</span><span class="dot"></span>
             <span>Linux · macOS · Windows</span><span class="dot"></span>
-            <span>~2k SLOC</span>
+            <span>~7k lines of Go</span>
           </p>
           <div class="proofs" aria-label="Project principles">
             <div class="proof"><strong>age-native</strong>No custom cryptography</div>
@@ -1583,6 +1650,29 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
           </div>
         </aside>
       </div>
+    </section>
+
+    <!-- ---------- demo video: a real recording, not a mock-up ---------- -->
+    <section class="watch wrap" id="demo" aria-labelledby="watch-h">
+      <div class="top">
+        <div>
+          <p class="eyebrow">See it work</p>
+          <h2 id="watch-h">Seventy seconds, one real terminal.</h2>
+        </div>
+        <p class="sub">
+          Alice shares the team's <span class="mono">.env</span>. Bob clones the repo and has working config in one
+          command. Mallory isn't on the team, adds herself to the access list anyway, and CI fails her pull request.
+          Every line is output from the actual binary. The final check, <span class="mono">check --base</span>, is on
+          <span class="mono">main</span> and ships in the next release.
+        </p>
+      </div>
+      <figure class="player">
+        <video controls muted playsinline preload="metadata" width="1920" height="1080"
+          poster="assets/envguardian-demo-poster.png"
+          aria-label="Terminal demo: sharing an encrypted .env, onboarding a teammate, and CI rejecting an outsider">
+          <source src="assets/envguardian-demo.mp4" type="video/mp4">
+        </video>
+      </figure>
     </section>
 
     <!-- ---------- three questions ---------- -->
@@ -1660,30 +1750,26 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
         </p>
       </div>
 
-      <div class="session" aria-label="Terminal session">
-        <span class="out"># You just cloned a repo. Your teammates have already committed .env.age.</span>
-        <span class="prompt">$</span> <span class="cmd">go run ./cmd/envguardian decrypt</span>
+      <div class="session" aria-label="Terminal session"><span class="out"># You just cloned a repo. Your teammates have already committed .env.age.</span>
+        <span class="out"># The first decrypt in a clone is an explicit trust decision.</span>
+        <span class="prompt">$</span> <span class="cmd">envguardian decrypt --accept-changes</span>
         <span class="em">decrypted .env.age → .env</span>
-
-        <hr>
-
-        <span class="out"># You edit .env locally, then re-encrypt. Idempotent — no diff if nothing changed.</span>
+        <span class="ok">accepted managed changes at commit a601ad5f015c</span><hr><span class="out"># You edit .env locally, then re-encrypt. Idempotent — no diff if nothing changed.</span>
         <span class="prompt">$</span> <span class="cmd">envguardian encrypt</span>
         <span class="em">encrypted .env → .env.age</span>
 
         <span class="prompt">$</span> <span class="cmd">git add .env.age .env.age.sig .envguardian/lock.toml</span>
-        <span class="prompt">$</span> <span class="cmd">git commit -m "feat(config): add API_RATE_LIMIT"</span>
-
-        <hr>
-
-        <span class="out"># Someone else pulls. Config changed, so hooks pause — no silent overwrite.</span>
+        <span class="prompt">$</span> <span class="cmd">git commit -m "feat(config): add API_RATE_LIMIT"</span><hr><span class="out"># A teammate pulls. The ciphertext changed, so nothing is written until they review it.</span>
         <span class="prompt">$</span> <span class="cmd">git pull</span>
-        <span class="warn">envguardian: managed inputs changed (recipients.toml, .env.age).</span>
-        <span class="warn"> review the change, then run: envguardian decrypt --accept-changes</span>
+        <span class="prompt">$</span> <span class="cmd">envguardian decrypt</span>
+        <span class="warn">envguardian: decryption blocked for commit 9f319ce0eea7:</span>
+        <span class="warn">&nbsp;&nbsp;- ciphertext .env.age changed keys: + API_RATE_LIMIT</span>
+        <span class="warn">&nbsp;&nbsp;- ciphertext signature .env.age.sig changed</span>
+        <span class="warn">review the commit, then run `envguardian decrypt --accept-changes` to allow these managed changes</span>
 
         <span class="prompt">$</span> <span class="cmd">envguardian decrypt --accept-changes</span>
-        <span class="ok">✓ accepted commit 4e2a1c; decrypted .env.age → .env</span>
-      </div>
+        <span class="em">decrypted .env.age → .env</span>
+        <span class="ok">accepted managed changes at commit 9f319ce0eea7</span></div>
     </section>
 
     <!-- ---------- not this / use this ---------- -->
@@ -1723,6 +1809,30 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
       </div>
     </section>
 
+    <!-- ---------- early users ---------- -->
+    <section class="tryit wrap" id="try" aria-labelledby="try-h">
+      <p class="eyebrow">Early users wanted</p>
+      <h2 id="try-h">I'm looking for the first teams to try it.</h2>
+      <p class="lede">
+        If your team passes <span class="mono">.env</span> files around in chat, I'd be grateful if you tried
+        EnvGuardian on a side project or with test values. I'm happy to help you set it up, and any feedback,
+        good or bad, helps a lot.
+      </p>
+      <div class="session" aria-label="Install commands"><span class="out"># macOS / Linux</span>
+        <span class="prompt">$</span> <span class="cmd">brew install --cask yehiagewily/tap/envguardian</span>
+
+        <span class="out"># Any platform with Go 1.25+</span>
+        <span class="prompt">$</span> <span class="cmd">go install github.com/YehiaGewily/envguardian/cmd/envguardian@latest</span></div>
+      <div class="hero-cta">
+        <a class="btn" href="https://github.com/YehiaGewily/EnvGuardian/issues/new">
+          Share feedback <span class="arrow" aria-hidden="true">→</span>
+        </a>
+        <a class="btn ghost" href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/USER_GUIDE.md">
+          Read the User Guide
+        </a>
+      </div>
+    </section>
+
     <!-- ---------- honesty: release status ---------- -->
     <section class="honesty wrap">
       <div class="honesty-grid">
@@ -1730,8 +1840,9 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
           <p class="eyebrow">Where the work stands</p>
           <h2>An honest release status.</h2>
           <p class="lede">
-            v0.1.0 was a development tag with known critical findings. v0.2.1 is a release candidate — the
-            implementation work is done; the launch verification is not. This isn't marketing copy.
+            v0.1.0 was a development tag with known critical findings. v0.2.3 is the latest release candidate —
+            the implementation work is done; the launch verification is not. Newer security fixes are on
+            <span class="mono">main</span> and ship in the next release. This isn't marketing copy.
           </p>
           <p class="see-plan">→ supported versions in <a
               href="https://github.com/YehiaGewily/EnvGuardian/blob/main/SECURITY.md">SECURITY.md</a></p>
@@ -1748,7 +1859,7 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
           <div class="gate">
             <span class="status done">done</span>
             <div>
-              <p>Revocation + rotation ledger, semantic merge driver, multi-file support, ADRs 0001–0008.</p>
+              <p>Revocation + rotation ledger, semantic merge driver, multi-file support, ADRs 0001–0009.</p>
             </div>
           </div>
           <div class="gate">
@@ -1759,18 +1870,26 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
             </div>
           </div>
           <div class="gate">
-            <span class="status todo">open</span>
+            <span class="status done">done</span>
             <div>
-              <p>Branch protection: signed commits, required checks, no force-push to <span class="mono">main</span>.
-              </p>
+              <p>Branch protection on <span class="mono">main</span>: pull requests, required CI checks, no force-push
+                or deletion.</p>
               <p class="note">Load-bearing for the trust story — set on the GitHub side, not in code.</p>
+            </div>
+          </div>
+          <div class="gate">
+            <span class="status todo">next</span>
+            <div>
+              <p>On <span class="mono">main</span>, not yet released: <span class="mono">check --base</span> for pull
+                requests, ssh-agent signing, <span class="mono">doctor</span>, and SBOMs with build-provenance
+                attestations.</p>
             </div>
           </div>
           <div class="gate">
             <span class="status todo">open</span>
             <div>
               <p>Published-binary verification on each supported OS, then the pre-release banner comes off.</p>
-              <p class="note">Install today: <span class="mono">brew install --cask yehiagewily/tap/envguardian</span> (macOS/Linux) or <span class="mono">go install …@v0.2.1</span>.</p>
+              <p class="note">Install today: <span class="mono">brew install --cask yehiagewily/tap/envguardian</span> (macOS/Linux) or <span class="mono">go install …@latest</span>.</p>
             </div>
           </div>
         </div>
@@ -1811,7 +1930,7 @@ K21DTGtQOWpuTmRQTGxPRnE0N3E4WXcKLS0tIHhIRDlTQnV0
           <h4>Security</h4>
           <ul>
             <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/SECURITY.md">Report an issue</a></li>
-            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/adr">ADRs 0001–0008</a></li>
+            <li><a href="https://github.com/YehiaGewily/EnvGuardian/blob/main/docs/adr">ADRs 0001–0009</a></li>
             <li><a href="https://github.com/FiloSottile/age">age(1)</a></li>
           </ul>
         </div>
